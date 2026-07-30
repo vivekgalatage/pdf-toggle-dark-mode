@@ -34,14 +34,14 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 
 Open a PDF, then click the ribbon or status bar control (or run the command).
 
-Under **Settings → PDF Toggle Dark Mode**:
+Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 
 | Setting | What it does | Default |
 |--------|----------------|---------|
 | **Darkness** | How strongly light pages turn dark | 100% (full) |
 | **Color correction** | Makes charts/photos look natural after darkening | 50% (recommended) |
 
-Use **Reset appearance** to restore those defaults.
+Use **Reset appearance** to restore those defaults. Settings are searchable from Obsidian’s global settings search.
 
 ## Develop
 

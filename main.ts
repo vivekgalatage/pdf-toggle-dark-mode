@@ -2,7 +2,7 @@ import {
 	App,
 	Plugin,
 	PluginSettingTab,
-	Setting,
+	SettingDefinitionItem,
 	setIcon,
 } from "obsidian";
 
@@ -286,6 +286,12 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	}
 }
 
+/**
+ * Declarative settings (Obsidian 1.13+).
+ *
+ * UI sliders use friendly 0–100% values; storage stays as
+ * conversionAmount (0–1) and hueRotation (0–360°) for CSS.
+ */
 class PdfDarkModeSettingTab extends PluginSettingTab {
 	plugin: PdfToggleDarkModePlugin;
 
@@ -294,91 +300,97 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-
-		containerEl.createEl("h2", { text: "PDF Toggle Dark Mode" });
-
-		containerEl.createEl("p", {
-			text: "These options only affect how PDFs look when dark mode is on. They do not change the rest of Obsidian.",
-			cls: "setting-item-description",
-		});
-
-		// --- Darkness (conversionAmount → invert) ---
-		const darknessPercent = Math.round(
-			this.plugin.settings.conversionAmount * 100
-		);
-
-		new Setting(containerEl)
-			.setName("Darkness")
-			.setDesc(
-				"How strongly light PDF pages turn dark. 100% is a full dark look; lower values keep pages lighter."
-			)
-			.addSlider((slider) =>
-				slider
-					.setLimits(0, 100, 1)
-					.setValue(darknessPercent)
-					.setDynamicTooltip()
-					.onChange((value) => {
-						this.plugin.settings.conversionAmount = value / 100;
-						void this.plugin.onAppearanceSettingChange();
-						this.updateDarknessReadout(value);
-					})
-			)
-			.then((setting) => {
-				this.darknessReadout = setting.controlEl.createSpan({
-					cls: "pdf-tdm-setting-readout",
-					text: this.darknessLabel(darknessPercent),
-				});
-			});
-
-		// --- Color correction (hueRotation → hue-rotate) ---
-		// Map 0–360° to a 0–100% “natural colors” friendly control.
-		// 50% ≈ 180° — the usual sweet spot after full darkening.
-		const colorPercent = Math.round(
-			(this.plugin.settings.hueRotation / 360) * 100
-		);
-
-		new Setting(containerEl)
-			.setName("Color correction")
-			.setDesc(
-				"After darkening, colors (charts, photos, highlights) can look off. Drag until they look natural. 50% works well for most PDFs."
-			)
-			.addSlider((slider) =>
-				slider
-					.setLimits(0, 100, 1)
-					.setValue(colorPercent)
-					.setDynamicTooltip()
-					.onChange((value) => {
-						this.plugin.settings.hueRotation = (value / 100) * 360;
-						void this.plugin.onAppearanceSettingChange();
-						this.updateColorReadout(value);
-					})
-			)
-			.then((setting) => {
-				this.colorReadout = setting.controlEl.createSpan({
-					cls: "pdf-tdm-setting-readout",
-					text: this.colorLabel(colorPercent),
-				});
-			});
-
-		new Setting(containerEl)
-			.setName("Reset appearance")
-			.setDesc("Restore Darkness and Color correction to the recommended defaults.")
-			.addButton((btn) =>
-				btn.setButtonText("Reset to defaults").onClick(() => {
-					this.plugin.settings.conversionAmount =
-						DEFAULT_SETTINGS.conversionAmount;
-					this.plugin.settings.hueRotation = DEFAULT_SETTINGS.hueRotation;
-					void this.plugin.onAppearanceSettingChange();
-					this.display();
-				})
-			);
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				type: "group",
+				heading: "PDF appearance",
+				items: [
+					{
+						name: "About",
+						desc: "These options only affect how PDFs look when dark mode is on. They do not change the rest of Obsidian.",
+					},
+					{
+						name: "Darkness",
+						desc: "How strongly light PDF pages turn dark. 100% is a full dark look; lower values keep pages lighter.",
+						aliases: ["conversion amount", "invert", "dark mode strength"],
+						control: {
+							type: "slider",
+							key: "darknessPercent",
+							min: 0,
+							max: 100,
+							step: 1,
+							defaultValue: 100,
+							displayFormat: (value) => this.darknessLabel(value),
+						},
+					},
+					{
+						name: "Color correction",
+						desc: "After darkening, colors (charts, photos, highlights) can look off. Drag until they look natural. 50% works well for most PDFs.",
+						aliases: ["hue", "color balance", "color tone"],
+						control: {
+							type: "slider",
+							key: "colorCorrectionPercent",
+							min: 0,
+							max: 100,
+							step: 1,
+							defaultValue: 50,
+							displayFormat: (value) => this.colorLabel(value),
+						},
+					},
+					{
+						name: "Reset appearance",
+						desc: "Restore Darkness and Color correction to the recommended defaults.",
+						action: () => {
+							this.plugin.settings.conversionAmount =
+								DEFAULT_SETTINGS.conversionAmount;
+							this.plugin.settings.hueRotation =
+								DEFAULT_SETTINGS.hueRotation;
+							void this.plugin.onAppearanceSettingChange().then(() => {
+								this.update();
+							});
+						},
+					},
+				],
+			},
+		];
 	}
 
-	private darknessReadout: HTMLElement | null = null;
-	private colorReadout: HTMLElement | null = null;
+	/**
+	 * Map friendly slider keys ↔ internal CSS-oriented settings.
+	 */
+	getControlValue(key: string): unknown {
+		if (key === "darknessPercent") {
+			return Math.round(this.plugin.settings.conversionAmount * 100);
+		}
+		if (key === "colorCorrectionPercent") {
+			return Math.round((this.plugin.settings.hueRotation / 360) * 100);
+		}
+		return super.getControlValue(key);
+	}
+
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		if (key === "darknessPercent") {
+			this.plugin.settings.conversionAmount = clamp(
+				Number(value) / 100,
+				0,
+				1
+			);
+			await this.plugin.onAppearanceSettingChange();
+			return;
+		}
+		if (key === "colorCorrectionPercent") {
+			this.plugin.settings.hueRotation = clamp(
+				(Number(value) / 100) * 360,
+				0,
+				360
+			);
+			await this.plugin.onAppearanceSettingChange();
+			return;
+		}
+		await super.setControlValue(key, value);
+		await this.plugin.onAppearanceSettingChange();
+	}
 
 	private darknessLabel(percent: number): string {
 		if (percent === 0) return "0% — off";
@@ -391,17 +403,5 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 		if (percent === 0) return "0% — no correction";
 		if (percent === 100) return "100%";
 		return `${percent}%`;
-	}
-
-	private updateDarknessReadout(percent: number) {
-		if (this.darknessReadout) {
-			this.darknessReadout.setText(this.darknessLabel(percent));
-		}
-	}
-
-	private updateColorReadout(percent: number) {
-		if (this.colorReadout) {
-			this.colorReadout.setText(this.colorLabel(percent));
-		}
 	}
 }

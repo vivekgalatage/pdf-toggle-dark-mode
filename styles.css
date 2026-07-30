@@ -36,13 +36,3 @@
 	width: 14px;
 	height: 14px;
 }
-
-/* Settings readouts next to sliders */
-.pdf-tdm-setting-readout {
-	min-width: 7.5em;
-	margin-left: 0.5em;
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
-	text-align: right;
-	white-space: nowrap;
-}
