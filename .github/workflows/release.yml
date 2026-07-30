@@ -1,0 +1,129 @@
+name: Release Obsidian plugin
+
+# Two ways to run:
+#
+# 1) Tag push (automated):
+#      git tag 1.0.0 && git push origin 1.0.0
+#
+# 2) On-demand (Actions → Release Obsidian plugin → Run workflow):
+#      Uses manifest.json version by default, or an optional version input.
+#      Tag must match manifest.json version (with or without a leading "v").
+#
+# Both paths build main.js and open a GitHub Release with the assets
+# Obsidian needs: main.js, manifest.json, styles.css.
+# Draft by default — publish from the GitHub Releases UI when ready.
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (leave empty to use manifest.json). Example: 1.0.0"
+        required: false
+        type: string
+        default: ""
+      draft:
+        description: "Create as draft release (uncheck to publish immediately)"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need full history for release notes on tag builds; HEAD is enough for dispatch
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install and build
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Verify release assets exist
+        run: |
+          test -f main.js
+          test -f manifest.json
+          test -f styles.css
+
+      - name: Resolve release version and tag
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          manifest_version="$(bun -e 'console.log(require("./manifest.json").version)')"
+          echo "manifest_version=$manifest_version" >> "$GITHUB_OUTPUT"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -n "${INPUT_VERSION:-}" ]; then
+              raw="$INPUT_VERSION"
+            else
+              raw="$manifest_version"
+            fi
+          else
+            # tag push
+            raw="$REF_NAME"
+          fi
+
+          # Normalize: allow tags like v1.0.0
+          version="${raw#v}"
+          tag="$version"
+
+          if [ "$version" != "$manifest_version" ]; then
+            echo "::error::Release version '$version' must match manifest.json version '$manifest_version'. Bump manifest (and package.json) first."
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved release: version=$version tag=$tag (event=$EVENT_NAME)"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          # workflow_dispatch only; empty on tag push → treat as draft
+          DRAFT_INPUT: ${{ inputs.draft }}
+        run: |
+          set -euo pipefail
+
+          draft_args=(--draft)
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "${DRAFT_INPUT:-true}" = "false" ]; then
+            draft_args=()
+          fi
+
+          # If a release for this tag already exists, fail clearly
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::A GitHub Release for tag '$TAG' already exists. Delete it or bump the version."
+            exit 1
+          fi
+
+          # Creates the git tag from this commit when missing (manual runs)
+          gh release create "$TAG" \
+            --title="$TAG" \
+            --generate-notes \
+            --target "${{ github.sha }}" \
+            "${draft_args[@]}" \
+            main.js \
+            manifest.json \
+            styles.css
+
+          echo "Created release for tag $TAG"

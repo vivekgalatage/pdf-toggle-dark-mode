@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output (attach built main.js to GitHub Releases, don't commit it)
+main.js
+*.js.map
+
+# Obsidian runtime plugin data (written when testing inside a vault)
+data.json
+
+# Logs / debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Optional local tooling
+.eslintcache
+coverage/
+dist/

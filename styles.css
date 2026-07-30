@@ -1,0 +1,32 @@
+/* Applied when PDF dark mode is active */
+
+.pdfViewer.pdf-dark-mode {
+	filter: invert(1) hue-rotate(180deg);
+}
+
+.pdf-sidebar-container img.thumbnailImage.pdf-dark-mode {
+	filter: invert(1) hue-rotate(180deg);
+}
+
+/* Status bar control */
+.pdf-toggle-dark-mode-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	cursor: pointer;
+	padding: 0 6px;
+}
+
+.pdf-toggle-dark-mode-status:hover {
+	color: var(--text-accent);
+}
+
+.pdf-toggle-dark-mode-status-icon {
+	display: inline-flex;
+	align-items: center;
+}
+
+.pdf-toggle-dark-mode-status-icon svg {
+	width: 14px;
+	height: 14px;
+}
