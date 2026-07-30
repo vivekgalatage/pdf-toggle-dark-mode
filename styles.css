@@ -1,11 +1,17 @@
-/* Applied when PDF dark mode is active */
+/* Applied when PDF dark mode is active.
+   Values come from plugin settings via CSS variables on body:
+   --pdf-tdm-invert  (0–1, conversion amount / darkness)
+   --pdf-tdm-hue     (e.g. 180deg, color correction)
+*/
 
 .pdfViewer.pdf-dark-mode {
-	filter: invert(1) hue-rotate(180deg);
+	filter: invert(var(--pdf-tdm-invert, 1))
+		hue-rotate(var(--pdf-tdm-hue, 180deg));
 }
 
 .pdf-sidebar-container img.thumbnailImage.pdf-dark-mode {
-	filter: invert(1) hue-rotate(180deg);
+	filter: invert(var(--pdf-tdm-invert, 1))
+		hue-rotate(var(--pdf-tdm-hue, 180deg));
 }
 
 /* Status bar control */
@@ -29,4 +35,14 @@
 .pdf-toggle-dark-mode-status-icon svg {
 	width: 14px;
 	height: 14px;
+}
+
+/* Settings readouts next to sliders */
+.pdf-tdm-setting-readout {
+	min-width: 7.5em;
+	margin-left: 0.5em;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	text-align: right;
+	white-space: nowrap;
 }
