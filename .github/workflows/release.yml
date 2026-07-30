@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -94,12 +94,14 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Resolved release: version=$version tag=$tag (event=$EVENT_NAME)"
 
+      # actions/attest@v4 targets Node 24 (avoids Node 20 deprecation warnings)
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest@v4
         with:
           subject-path: |
             main.js
             styles.css
+
 
       - name: Create GitHub Release
         env:
