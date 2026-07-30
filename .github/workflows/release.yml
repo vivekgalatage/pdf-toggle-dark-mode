@@ -3,14 +3,14 @@ name: Release Obsidian plugin
 # Two ways to run:
 #
 # 1) Tag push (automated):
-#      git tag 1.0.0 && git push origin 1.0.0
+#      git tag 1.0.1 && git push origin 1.0.1
 #
 # 2) On-demand (Actions → Release Obsidian plugin → Run workflow):
 #      Uses manifest.json version by default, or an optional version input.
 #      Tag must match manifest.json version (with or without a leading "v").
 #
-# Both paths build main.js and open a GitHub Release with the assets
-# Obsidian needs: main.js, manifest.json, styles.css.
+# Both paths build main.js, attest build provenance, and open a GitHub Release
+# with the assets Obsidian needs: main.js, manifest.json, styles.css.
 # Draft by default — publish from the GitHub Releases UI when ready.
 
 on:
@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (leave empty to use manifest.json). Example: 1.0.0"
+        description: "Release version (leave empty to use manifest.json). Example: 1.0.1"
         required: false
         type: string
         default: ""
@@ -35,12 +35,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Need full history for release notes on tag builds; HEAD is enough for dispatch
           fetch-depth: 0
 
       - name: Setup Bun
@@ -78,11 +79,9 @@ jobs:
               raw="$manifest_version"
             fi
           else
-            # tag push
             raw="$REF_NAME"
           fi
 
-          # Normalize: allow tags like v1.0.0
           version="${raw#v}"
           tag="$version"
 
@@ -95,12 +94,18 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Resolved release: version=$version tag=$tag (event=$EVENT_NAME)"
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            styles.css
+
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.meta.outputs.tag }}
           EVENT_NAME: ${{ github.event_name }}
-          # workflow_dispatch only; empty on tag push → treat as draft
           DRAFT_INPUT: ${{ inputs.draft }}
         run: |
           set -euo pipefail
@@ -110,13 +115,11 @@ jobs:
             draft_args=()
           fi
 
-          # If a release for this tag already exists, fail clearly
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "::error::A GitHub Release for tag '$TAG' already exists. Delete it or bump the version."
             exit 1
           fi
 
-          # Creates the git tag from this commit when missing (manual runs)
           gh release create "$TAG" \
             --title="$TAG" \
             --generate-notes \

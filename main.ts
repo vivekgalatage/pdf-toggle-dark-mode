@@ -116,7 +116,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	private nodesMayIncludePdf(nodes: NodeList): boolean {
 		for (let i = 0; i < nodes.length; i++) {
 			const node = nodes[i];
-			if (!(node instanceof HTMLElement)) {
+			// Cross-window safe (pop-out windows); avoid raw `instanceof`
+			if (!node.instanceOf(HTMLElement)) {
 				continue;
 			}
 			if (
