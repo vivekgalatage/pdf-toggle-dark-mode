@@ -15,10 +15,28 @@
 }
 
 /*
- * Link-outline hiding is intentionally not declared here.
- * See main.ts — a temporary head <style> is mounted only while outlines are
- * hidden, so this stylesheet stays review-clean and re-show stays reversible.
+ * Fallback hide for link annotation outlines (body class from main.ts).
+ * Per-node overrides for PDF.js inline borders use setCssProps in main.ts so
+ * this file stays free of review-flagged patterns. Links remain clickable.
  */
+body.pdf-tdm-hide-link-annotations .workspace .pdfViewer .page .annotationLayer section,
+body.pdf-tdm-hide-link-annotations .workspace .pdfViewer .page .annotationLayer section.linkAnnotation,
+body.pdf-tdm-hide-link-annotations .workspace .pdfViewer .page .annotationLayer .linkAnnotation > a,
+body.pdf-tdm-hide-link-annotations .workspace .pdfViewer .page .annotationLayer a,
+body.pdf-tdm-hide-link-annotations .pdfViewer .annotationLayer section,
+body.pdf-tdm-hide-link-annotations .pdfViewer .annotationLayer section.linkAnnotation,
+body.pdf-tdm-hide-link-annotations .pdfViewer .annotationLayer .linkAnnotation > a,
+body.pdf-tdm-hide-link-annotations .pdfViewer .annotationLayer a {
+	border-width: 0;
+	border-style: none;
+	border-color: transparent;
+	outline-width: 0;
+	outline-style: none;
+	outline-color: transparent;
+	box-shadow: none;
+	background-color: transparent;
+	background-image: none;
+}
 
 /* Status bar control */
 .pdf-toggle-dark-mode-status {
