@@ -16,6 +16,9 @@ const SELECTORS = [
 const CSS_VAR_INVERT = "--pdf-tdm-invert";
 const CSS_VAR_HUE = "--pdf-tdm-hue";
 
+/** Body class when link/annotation outlines should be hidden */
+const HIDE_LINK_ANNOTATIONS_CLASS = "pdf-tdm-hide-link-annotations";
+
 interface PdfDarkModeSettings {
 	isDark: boolean;
 	/**
@@ -28,12 +31,18 @@ interface PdfDarkModeSettings {
 	 * 0–360. Default 180 restores natural-looking colors after a full invert.
 	 */
 	hueRotation: number;
+	/**
+	 * When true, PDF link annotation outlines (clickable regions) are shown.
+	 * When false, their border/outline is suppressed.
+	 */
+	showLinkAnnotations: boolean;
 }
 
 const DEFAULT_SETTINGS: PdfDarkModeSettings = {
 	isDark: false,
 	conversionAmount: 1,
 	hueRotation: 180,
+	showLinkAnnotations: true,
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -86,6 +95,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 
 		this.updateUi();
 		this.applyAppearanceVars();
+		this.applyLinkAnnotationStyle();
 		this.applyModeToDom();
 
 		// Re-apply when layout / leaves change (new PDF opens)
@@ -114,6 +124,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				this.applyTimer = null;
 			}
 			this.clearAppearanceVars();
+			this.clearLinkAnnotationStyle();
 		});
 	}
 
@@ -126,6 +137,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		}
 		this.setClassOnTargets(false);
 		this.clearAppearanceVars();
+		this.clearLinkAnnotationStyle();
 	}
 
 	/**
@@ -196,8 +208,21 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		document.body.style.removeProperty(CSS_VAR_HUE);
 	}
 
+	/** Show/hide PDF link annotation outlines via a body class. */
+	applyLinkAnnotationStyle() {
+		document.body.classList.toggle(
+			HIDE_LINK_ANNOTATIONS_CLASS,
+			!this.settings.showLinkAnnotations
+		);
+	}
+
+	private clearLinkAnnotationStyle() {
+		document.body.classList.remove(HIDE_LINK_ANNOTATIONS_CLASS);
+	}
+
 	private applyModeToDom() {
 		this.applyAppearanceVars();
+		this.applyLinkAnnotationStyle();
 		this.setClassOnTargets(this.settings.isDark);
 	}
 
@@ -269,6 +294,15 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		if (Number.isNaN(this.settings.hueRotation)) {
 			this.settings.hueRotation = DEFAULT_SETTINGS.hueRotation;
 		}
+		this.settings.showLinkAnnotations = Boolean(
+			this.settings.showLinkAnnotations
+		);
+		// Upgrade: older data.json may omit this field → Object.assign already
+		// applied DEFAULT_SETTINGS, but force a real boolean if missing.
+		if (raw && typeof raw.showLinkAnnotations !== "boolean") {
+			this.settings.showLinkAnnotations =
+				DEFAULT_SETTINGS.showLinkAnnotations;
+		}
 	}
 
 	async saveSettings() {
@@ -279,6 +313,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	async onAppearanceSettingChange() {
 		await this.saveSettings();
 		this.applyAppearanceVars();
+		this.applyLinkAnnotationStyle();
 		// Re-toggle class path so late elements also pick up vars
 		if (this.settings.isDark) {
 			this.applyModeToDom();
@@ -339,13 +374,30 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 						},
 					},
 					{
+						name: "Show link outlines",
+						desc: "Show the outline boxes around clickable links in PDFs. Turn off to hide those borders while keeping links clickable.",
+						aliases: [
+							"link annotations",
+							"annotation layer",
+							"link boxes",
+							"link borders",
+						],
+						control: {
+							type: "toggle",
+							key: "showLinkAnnotations",
+							defaultValue: true,
+						},
+					},
+					{
 						name: "Reset appearance",
-						desc: "Restore Darkness and Color correction to the recommended defaults.",
+						desc: "Restore Darkness, Color correction, and Show link outlines to the recommended defaults.",
 						action: () => {
 							this.plugin.settings.conversionAmount =
 								DEFAULT_SETTINGS.conversionAmount;
 							this.plugin.settings.hueRotation =
 								DEFAULT_SETTINGS.hueRotation;
+							this.plugin.settings.showLinkAnnotations =
+								DEFAULT_SETTINGS.showLinkAnnotations;
 							void this.plugin.onAppearanceSettingChange().then(() => {
 								this.update();
 							});

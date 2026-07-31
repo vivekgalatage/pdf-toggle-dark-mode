@@ -14,6 +14,13 @@
 		hue-rotate(var(--pdf-tdm-hue, 180deg));
 }
 
+/* Hide PDF link annotation outlines when the setting is off.
+   Links remain clickable; only the visible border/outline is removed. */
+body.pdf-tdm-hide-link-annotations .annotationLayer section {
+	border: none !important;
+	outline: none !important;
+}
+
 /* Status bar control */
 .pdf-toggle-dark-mode-status {
 	display: inline-flex;
