@@ -14,9 +14,11 @@
 		hue-rotate(var(--pdf-tdm-hue, 180deg));
 }
 
-/* Link annotation outline visibility is applied from main.ts (inline styles).
-   Some Linux themes set border/outline with !important; stylesheet rules
-   cannot override those without !important, so we avoid it here. */
+/*
+ * Link-outline hiding is intentionally not declared here.
+ * See main.ts — a temporary head <style> is mounted only while outlines are
+ * hidden, so this stylesheet stays review-clean and re-show stays reversible.
+ */
 
 /* Status bar control */
 .pdf-toggle-dark-mode-status {
