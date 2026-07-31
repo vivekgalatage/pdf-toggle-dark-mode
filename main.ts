@@ -16,8 +16,19 @@ const SELECTORS = [
 const CSS_VAR_INVERT = "--pdf-tdm-invert";
 const CSS_VAR_HUE = "--pdf-tdm-hue";
 
-/** Body class when link/annotation outlines should be hidden */
-const HIDE_LINK_ANNOTATIONS_CLASS = "pdf-tdm-hide-link-annotations";
+/**
+ * PDF.js / Obsidian link annotation hit targets whose visible outlines we manage.
+ * Outline hiding is done via element style (not styles.css) so it still wins on
+ * platforms where themes set border/outline with !important (e.g. some Linux builds).
+ */
+const LINK_ANNOTATION_SELECTORS = [
+	".pdfViewer .annotationLayer section",
+	".pdfViewer .annotationLayer section.linkAnnotation",
+	".pdfViewer .annotationLayer .linkAnnotation > a",
+] as const;
+
+/** Marks elements whose outline styles we overrode, so we can restore cleanly. */
+const LINK_OUTLINE_MARK = "data-pdf-tdm-hide-outline";
 
 interface PdfDarkModeSettings {
 	isDark: boolean;
@@ -165,10 +176,10 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			}
 			if (
 				node.matches?.(
-					".pdfViewer, .pdf-sidebar-container, .thumbnailImage, .pdf-container, .workspace-leaf"
+					".pdfViewer, .pdf-sidebar-container, .thumbnailImage, .pdf-container, .workspace-leaf, .annotationLayer, .linkAnnotation"
 				) ||
 				node.querySelector?.(
-					".pdfViewer, .pdf-sidebar-container img.thumbnailImage, .thumbnailImage"
+					".pdfViewer, .pdf-sidebar-container img.thumbnailImage, .thumbnailImage, .annotationLayer, .linkAnnotation"
 				)
 			) {
 				return true;
@@ -208,16 +219,43 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		document.body.style.removeProperty(CSS_VAR_HUE);
 	}
 
-	/** Show/hide PDF link annotation outlines via a body class. */
+	/**
+	 * Show/hide PDF link annotation outlines.
+	 * Uses inline styles with priority so we can override theme rules that
+	 * use !important (common on Linux), without putting !important in styles.css.
+	 */
 	applyLinkAnnotationStyle() {
-		document.body.classList.toggle(
-			HIDE_LINK_ANNOTATIONS_CLASS,
-			!this.settings.showLinkAnnotations
-		);
+		if (this.settings.showLinkAnnotations) {
+			this.clearLinkAnnotationStyle();
+			return;
+		}
+
+		for (const selector of LINK_ANNOTATION_SELECTORS) {
+			document.querySelectorAll(selector).forEach((node) => {
+				if (!node.instanceOf(HTMLElement)) {
+					return;
+				}
+				// Priority "important" is required to beat theme !important borders.
+				node.style.setProperty("border", "none", "important");
+				node.style.setProperty("outline", "none", "important");
+				node.style.setProperty("box-shadow", "none", "important");
+				node.setAttribute(LINK_OUTLINE_MARK, "1");
+			});
+		}
 	}
 
 	private clearLinkAnnotationStyle() {
-		document.body.classList.remove(HIDE_LINK_ANNOTATIONS_CLASS);
+		document
+			.querySelectorAll(`[${LINK_OUTLINE_MARK}]`)
+			.forEach((node) => {
+				if (!node.instanceOf(HTMLElement)) {
+					return;
+				}
+				node.style.removeProperty("border");
+				node.style.removeProperty("outline");
+				node.style.removeProperty("box-shadow");
+				node.removeAttribute(LINK_OUTLINE_MARK);
+			});
 	}
 
 	private applyModeToDom() {
@@ -314,9 +352,9 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		await this.saveSettings();
 		this.applyAppearanceVars();
 		this.applyLinkAnnotationStyle();
-		// Re-toggle class path so late elements also pick up vars
+		// Dark-mode class + vars for open PDFs; always refresh outlines above
 		if (this.settings.isDark) {
-			this.applyModeToDom();
+			this.setClassOnTargets(true);
 		}
 	}
 }
