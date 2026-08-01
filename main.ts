@@ -16,6 +16,20 @@ const SELECTORS = [
 /** CSS custom properties used by styles.css */
 const CSS_VAR_INVERT = "--pdf-tdm-invert";
 const CSS_VAR_HUE = "--pdf-tdm-hue";
+const CSS_VAR_BRIGHTNESS = "--pdf-tdm-brightness";
+
+/**
+ * CSS filter brightness() multiplier bounds.
+ * Below ~20% is too dark after invert; >2 blows out to white.
+ * UI exposes 20–200% (stored as 0.2–2).
+ */
+const BRIGHTNESS_MIN = 0.2;
+const BRIGHTNESS_MAX = 2;
+const BRIGHTNESS_UI_MIN = 20;
+const BRIGHTNESS_UI_MAX = 200;
+
+/** All appearance percent sliders (darkness, color, brightness) use 5% steps. */
+const SLIDER_STEP = 5;
 
 /**
  * Mounted into Obsidian’s native PDF toolbar (same place PDF++ puts its
@@ -63,7 +77,7 @@ interface PdfDarkModeSettings {
 	isDark: boolean;
 	/**
 	 * How strongly light PDF pages turn dark (CSS invert amount).
-	 * 0 = no change, 1 = full conversion. Default 1.
+	 * 0 = no change, 1 = full conversion. Default 0.9 (90%).
 	 */
 	conversionAmount: number;
 	/**
@@ -71,6 +85,12 @@ interface PdfDarkModeSettings {
 	 * 0–360. Default 180 restores natural-looking colors after a full invert.
 	 */
 	hueRotation: number;
+	/**
+	 * CSS filter brightness() multiplier after invert/hue.
+	 * Clamped to {@link BRIGHTNESS_MIN}–{@link BRIGHTNESS_MAX} (20%–200%).
+	 * Default 1 (100% — unchanged brightness).
+	 */
+	brightness: number;
 	/**
 	 * When true, PDF link annotation outlines (clickable regions) are shown.
 	 * When false, their border/outline is suppressed.
@@ -80,13 +100,75 @@ interface PdfDarkModeSettings {
 
 const DEFAULT_SETTINGS: PdfDarkModeSettings = {
 	isDark: false,
-	conversionAmount: 1,
+	conversionAmount: 0.9,
 	hueRotation: 180,
+	brightness: 1,
 	showLinkAnnotations: true,
 };
 
+/** Friendly defaults for labels / reset tooltips (match DEFAULT_SETTINGS). */
+const DEFAULT_DARKNESS_PERCENT = 90;
+const DEFAULT_COLOR_PERCENT = 50;
+const DEFAULT_BRIGHTNESS_PERCENT = 100;
+
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Round a percent UI value to the nearest {@link SLIDER_STEP}, then clamp.
+ * Keeps darkness / color / brightness controls on a 5% grid.
+ */
+function snapPercent(
+	value: number,
+	min: number,
+	max: number,
+	step: number = SLIDER_STEP
+): number {
+	if (Number.isNaN(value)) {
+		return min;
+	}
+	const clamped = clamp(value, min, max);
+	const snapped = Math.round(clamped / step) * step;
+	return clamp(snapped, min, max);
+}
+
+/** Clamp + coerce brightness; floor 20% (too dark below), cap 200%. */
+function clampBrightness(value: number): number {
+	if (Number.isNaN(value)) {
+		return DEFAULT_SETTINGS.brightness;
+	}
+	return clamp(value, BRIGHTNESS_MIN, BRIGHTNESS_MAX);
+}
+
+function brightnessToPercent(brightness: number): number {
+	return snapPercent(
+		Math.round(clampBrightness(brightness) * 100),
+		BRIGHTNESS_UI_MIN,
+		BRIGHTNESS_UI_MAX
+	);
+}
+
+function percentToBrightness(percent: number): number {
+	return clampBrightness(
+		snapPercent(percent, BRIGHTNESS_UI_MIN, BRIGHTNESS_UI_MAX) / 100
+	);
+}
+
+function darknessToPercent(conversionAmount: number): number {
+	return snapPercent(Math.round(conversionAmount * 100), 0, 100);
+}
+
+function percentToDarkness(percent: number): number {
+	return snapPercent(percent, 0, 100) / 100;
+}
+
+function colorToPercent(hueRotation: number): number {
+	return snapPercent(Math.round((hueRotation / 360) * 100), 0, 100);
+}
+
+function percentToColor(percent: number): number {
+	return (snapPercent(percent, 0, 100) / 100) * 360;
 }
 
 export default class PdfToggleDarkModePlugin extends Plugin {
@@ -253,14 +335,16 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		this.syncAllToolbarControls();
 	}
 
-	/** Push user-facing darkness / color settings into CSS variables. */
+	/** Push user-facing darkness / color / brightness settings into CSS variables. */
 	applyAppearanceVars() {
 		const invert = clamp(this.settings.conversionAmount, 0, 1);
 		const hue = clamp(this.settings.hueRotation, 0, 360);
+		const brightness = clampBrightness(this.settings.brightness);
 		// Prefer Obsidian helpers over element.style.* (review: no-static-styles-assignment)
 		document.body.setCssProps({
 			[CSS_VAR_INVERT]: String(invert),
 			[CSS_VAR_HUE]: `${hue}deg`,
+			[CSS_VAR_BRIGHTNESS]: String(brightness),
 		});
 	}
 
@@ -269,6 +353,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		document.body.setCssProps({
 			[CSS_VAR_INVERT]: "",
 			[CSS_VAR_HUE]: "",
+			[CSS_VAR_BRIGHTNESS]: "",
 		});
 	}
 
@@ -413,27 +498,45 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			key: "darkness",
 			label: "Dark",
 			ariaLabel: "Darkness",
-			title: "Darkness — how strongly light pages turn dark",
+			title: "Darkness — how strongly light pages turn dark (5% steps)",
 			min: 0,
 			max: 100,
-			getValue: () => Math.round(this.settings.conversionAmount * 100),
+			defaultPercent: DEFAULT_DARKNESS_PERCENT,
+			getValue: () => darknessToPercent(this.settings.conversionAmount),
 			setValue: (percent) => {
-				this.settings.conversionAmount = clamp(percent / 100, 0, 1);
+				this.settings.conversionAmount = percentToDarkness(percent);
 			},
+			onReset: () => this.resetDarknessToDefault(),
 		});
 
 		this.createToolbarSlider(sliders, {
 			key: "color",
 			label: "Color",
 			ariaLabel: "Color correction",
-			title: "Color correction — drag until charts/photos look natural",
+			title: "Color correction — drag until charts/photos look natural (5% steps)",
 			min: 0,
 			max: 100,
-			getValue: () =>
-				Math.round((this.settings.hueRotation / 360) * 100),
+			defaultPercent: DEFAULT_COLOR_PERCENT,
+			getValue: () => colorToPercent(this.settings.hueRotation),
 			setValue: (percent) => {
-				this.settings.hueRotation = clamp((percent / 100) * 360, 0, 360);
+				this.settings.hueRotation = percentToColor(percent);
 			},
+			onReset: () => this.resetColorToDefault(),
+		});
+
+		this.createToolbarSlider(sliders, {
+			key: "brightness",
+			label: "Bright",
+			ariaLabel: "Brightness",
+			title: "Brightness — 20% min, 200% max (5% steps)",
+			min: BRIGHTNESS_UI_MIN,
+			max: BRIGHTNESS_UI_MAX,
+			defaultPercent: DEFAULT_BRIGHTNESS_PERCENT,
+			getValue: () => brightnessToPercent(this.settings.brightness),
+			setValue: (percent) => {
+				this.settings.brightness = percentToBrightness(percent);
+			},
+			onReset: () => this.resetBrightnessToDefault(),
 		});
 	}
 
@@ -446,8 +549,10 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			title: string;
 			min: number;
 			max: number;
+			defaultPercent: number;
 			getValue: () => number;
 			setValue: (percent: number) => void;
+			onReset: () => void | Promise<void>;
 		}
 	) {
 		const group = parent.createDiv({
@@ -464,7 +569,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				type: "range",
 				min: String(opts.min),
 				max: String(opts.max),
-				step: "1",
+				step: String(SLIDER_STEP),
 				"aria-label": opts.ariaLabel,
 			},
 		});
@@ -476,25 +581,51 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			text: `${opts.getValue()}%`,
 		});
 
-		const onInput = () => {
-			const percent = clamp(
-				Math.round(Number(input.value)),
-				opts.min,
-				opts.max
-			);
-			opts.setValue(percent);
-			valueEl.setText(`${percent}%`);
+		const resetBtn = group.createDiv({
+			cls: "clickable-icon pdf-tdm-slider-reset",
+			attr: {
+				role: "button",
+				tabindex: "0",
+				"aria-label": `Reset ${opts.ariaLabel} to ${opts.defaultPercent}%`,
+			},
+		});
+		setIcon(resetBtn, "rotate-ccw");
+		setTooltip(
+			resetBtn,
+			`Reset ${opts.ariaLabel} to default (${opts.defaultPercent}%)`
+		);
+
+		const applyPercent = (percent: number) => {
+			const snapped = snapPercent(percent, opts.min, opts.max);
+			input.value = String(snapped);
+			opts.setValue(snapped);
+			valueEl.setText(`${snapped}%`);
 			this.applyAppearanceVars();
 			if (this.settings.isDark) {
 				this.setClassOnTargets(true);
 			}
-			// Keep other open PDF toolbars in sync (live)
 			this.syncAllToolbarControls(input);
+		};
+
+		const onInput = () => {
+			applyPercent(Math.round(Number(input.value)));
 			this.scheduleSaveSettings();
+		};
+
+		const doReset = (e: Event) => {
+			e.preventDefault();
+			e.stopPropagation();
+			void opts.onReset();
 		};
 
 		this.registerDomEvent(input, "input", onInput);
 		this.registerDomEvent(input, "change", onInput);
+		this.registerDomEvent(resetBtn, "click", doReset);
+		this.registerDomEvent(resetBtn, "keydown", (e: KeyboardEvent) => {
+			if (e.key === "Enter" || e.key === " ") {
+				doReset(e);
+			}
+		});
 	}
 
 	/** Debounced persist so slider drags don’t thrash disk. */
@@ -515,8 +646,9 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	 */
 	syncAllToolbarControls(exceptInput?: HTMLInputElement) {
 		const isDark = this.settings.isDark;
-		const darknessPct = Math.round(this.settings.conversionAmount * 100);
-		const colorPct = Math.round((this.settings.hueRotation / 360) * 100);
+		const darknessPct = darknessToPercent(this.settings.conversionAmount);
+		const colorPct = colorToPercent(this.settings.hueRotation);
+		const brightnessPct = brightnessToPercent(this.settings.brightness);
 		const icon = this.iconName();
 		const tooltip = this.ribbonTooltip();
 		const fullChrome = !exceptInput;
@@ -570,6 +702,19 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			}
 			if (colorVal) {
 				colorVal.setText(`${colorPct}%`);
+			}
+
+			const brightnessInput = root.querySelector<HTMLInputElement>(
+				".pdf-tdm-slider-input-brightness"
+			);
+			const brightnessVal = root.querySelector<HTMLElement>(
+				".pdf-tdm-slider-brightness .pdf-tdm-slider-value"
+			);
+			if (brightnessInput && brightnessInput !== exceptInput) {
+				brightnessInput.value = String(brightnessPct);
+			}
+			if (brightnessVal) {
+				brightnessVal.setText(`${brightnessPct}%`);
 			}
 		}
 	}
@@ -639,21 +784,26 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	async loadSettings() {
 		const raw = (await this.loadData()) as Partial<PdfDarkModeSettings> | null;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
-		this.settings.conversionAmount = clamp(
-			Number(this.settings.conversionAmount),
-			0,
-			1
+		// Snap to 5% grid (and clamp) so legacy 1% saves land on valid steps
+		this.settings.conversionAmount = percentToDarkness(
+			darknessToPercent(Number(this.settings.conversionAmount))
 		);
-		if (Number.isNaN(this.settings.conversionAmount)) {
+		if (Number.isNaN(Number(raw?.conversionAmount))) {
 			this.settings.conversionAmount = DEFAULT_SETTINGS.conversionAmount;
 		}
-		this.settings.hueRotation = clamp(
-			Number(this.settings.hueRotation),
-			0,
-			360
+		this.settings.hueRotation = percentToColor(
+			colorToPercent(Number(this.settings.hueRotation))
 		);
-		if (Number.isNaN(this.settings.hueRotation)) {
+		if (Number.isNaN(Number(raw?.hueRotation))) {
 			this.settings.hueRotation = DEFAULT_SETTINGS.hueRotation;
+		}
+		// Clamp hard: <20% too dark after invert; >200% blown-out white; 5% steps
+		this.settings.brightness = percentToBrightness(
+			brightnessToPercent(Number(this.settings.brightness))
+		);
+		// Upgrade: older data.json may omit brightness
+		if (raw && typeof raw.brightness !== "number") {
+			this.settings.brightness = DEFAULT_SETTINGS.brightness;
 		}
 		this.settings.showLinkAnnotations = Boolean(
 			this.settings.showLinkAnnotations
@@ -681,13 +831,31 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		}
 		this.syncAllToolbarControls();
 	}
+
+	/** Restore Darkness slider only. */
+	async resetDarknessToDefault() {
+		this.settings.conversionAmount = DEFAULT_SETTINGS.conversionAmount;
+		await this.onAppearanceSettingChange();
+	}
+
+	/** Restore Color correction slider only. */
+	async resetColorToDefault() {
+		this.settings.hueRotation = DEFAULT_SETTINGS.hueRotation;
+		await this.onAppearanceSettingChange();
+	}
+
+	/** Restore Brightness slider only. */
+	async resetBrightnessToDefault() {
+		this.settings.brightness = DEFAULT_SETTINGS.brightness;
+		await this.onAppearanceSettingChange();
+	}
 }
 
 /**
  * Declarative settings (Obsidian 1.13+).
  *
- * UI sliders use friendly 0–100% values; storage stays as
- * conversionAmount (0–1) and hueRotation (0–360°) for CSS.
+ * UI sliders use friendly percent values; storage stays as
+ * conversionAmount (0–1), hueRotation (0–360°), and brightness (0.2–2) for CSS.
  */
 class PdfDarkModeSettingTab extends PluginSettingTab {
 	plugin: PdfToggleDarkModePlugin;
@@ -709,30 +877,81 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 					},
 					{
 						name: "Darkness",
-						desc: "How strongly light PDF pages turn dark. 100% is a full dark look; lower values keep pages lighter.",
+						desc: "How strongly light PDF pages turn dark. 90% is the default; 100% is a full dark look; lower values keep pages lighter. Adjusts in 5% steps.",
 						aliases: ["conversion amount", "invert", "dark mode strength"],
 						control: {
 							type: "slider",
 							key: "darknessPercent",
 							min: 0,
 							max: 100,
-							step: 1,
-							defaultValue: 100,
+							step: SLIDER_STEP,
+							defaultValue: DEFAULT_DARKNESS_PERCENT,
 							displayFormat: (value) => this.darknessLabel(value),
 						},
 					},
 					{
+						name: "Reset darkness",
+						desc: `Restore Darkness to the default (${DEFAULT_DARKNESS_PERCENT}%).`,
+						aliases: ["reset dark", "default darkness"],
+						action: () => {
+							void this.plugin.resetDarknessToDefault().then(() => {
+								this.update();
+							});
+						},
+					},
+					{
 						name: "Color correction",
-						desc: "After darkening, colors (charts, photos, highlights) can look off. Drag until they look natural. 50% works well for most PDFs.",
+						desc: "After darkening, colors (charts, photos, highlights) can look off. Drag until they look natural. 50% works well for most PDFs. Adjusts in 5% steps.",
 						aliases: ["hue", "color balance", "color tone"],
 						control: {
 							type: "slider",
 							key: "colorCorrectionPercent",
 							min: 0,
 							max: 100,
-							step: 1,
-							defaultValue: 50,
+							step: SLIDER_STEP,
+							defaultValue: DEFAULT_COLOR_PERCENT,
 							displayFormat: (value) => this.colorLabel(value),
+						},
+					},
+					{
+						name: "Reset color correction",
+						desc: `Restore Color correction to the default (${DEFAULT_COLOR_PERCENT}%).`,
+						aliases: ["reset color", "default color", "reset hue"],
+						action: () => {
+							void this.plugin.resetColorToDefault().then(() => {
+								this.update();
+							});
+						},
+					},
+					{
+						name: "Brightness",
+						desc: "Overall brightness after darkening (CSS brightness). Range is 20–200% in 5% steps (below 20% is too dark; above 200% washes out).",
+						aliases: [
+							"bright",
+							"luminance",
+							"light level",
+							"filter brightness",
+						],
+						control: {
+							type: "slider",
+							key: "brightnessPercent",
+							min: BRIGHTNESS_UI_MIN,
+							max: BRIGHTNESS_UI_MAX,
+							step: SLIDER_STEP,
+							defaultValue: DEFAULT_BRIGHTNESS_PERCENT,
+							displayFormat: (value) => this.brightnessLabel(value),
+						},
+					},
+					{
+						name: "Reset brightness",
+						desc: `Restore Brightness to the default (${DEFAULT_BRIGHTNESS_PERCENT}%).`,
+						aliases: ["reset bright", "default brightness"],
+						action: () => {
+							void this.plugin
+								.resetBrightnessToDefault()
+								.then(() => {
+									this.update();
+								});
 						},
 					},
 					{
@@ -752,12 +971,14 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 					},
 					{
 						name: "Reset appearance",
-						desc: "Restore Darkness, Color correction, and Show link outlines to the recommended defaults.",
+						desc: "Restore Darkness, Color correction, Brightness, and Show link outlines to the recommended defaults.",
 						action: () => {
 							this.plugin.settings.conversionAmount =
 								DEFAULT_SETTINGS.conversionAmount;
 							this.plugin.settings.hueRotation =
 								DEFAULT_SETTINGS.hueRotation;
+							this.plugin.settings.brightness =
+								DEFAULT_SETTINGS.brightness;
 							this.plugin.settings.showLinkAnnotations =
 								DEFAULT_SETTINGS.showLinkAnnotations;
 							void this.plugin.onAppearanceSettingChange().then(() => {
@@ -775,30 +996,32 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 	 */
 	getControlValue(key: string): unknown {
 		if (key === "darknessPercent") {
-			return Math.round(this.plugin.settings.conversionAmount * 100);
+			return darknessToPercent(this.plugin.settings.conversionAmount);
 		}
 		if (key === "colorCorrectionPercent") {
-			return Math.round((this.plugin.settings.hueRotation / 360) * 100);
+			return colorToPercent(this.plugin.settings.hueRotation);
+		}
+		if (key === "brightnessPercent") {
+			return brightnessToPercent(this.plugin.settings.brightness);
 		}
 		return super.getControlValue(key);
 	}
 
 	async setControlValue(key: string, value: unknown): Promise<void> {
 		if (key === "darknessPercent") {
-			this.plugin.settings.conversionAmount = clamp(
-				Number(value) / 100,
-				0,
-				1
+			this.plugin.settings.conversionAmount = percentToDarkness(
+				Number(value)
 			);
 			await this.plugin.onAppearanceSettingChange();
 			return;
 		}
 		if (key === "colorCorrectionPercent") {
-			this.plugin.settings.hueRotation = clamp(
-				(Number(value) / 100) * 360,
-				0,
-				360
-			);
+			this.plugin.settings.hueRotation = percentToColor(Number(value));
+			await this.plugin.onAppearanceSettingChange();
+			return;
+		}
+		if (key === "brightnessPercent") {
+			this.plugin.settings.brightness = percentToBrightness(Number(value));
 			await this.plugin.onAppearanceSettingChange();
 			return;
 		}
@@ -808,14 +1031,28 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 
 	private darknessLabel(percent: number): string {
 		if (percent === 0) return "0% — off";
+		if (percent === DEFAULT_DARKNESS_PERCENT) {
+			return `${DEFAULT_DARKNESS_PERCENT}% — default`;
+		}
 		if (percent === 100) return "100% — full dark";
 		return `${percent}%`;
 	}
 
 	private colorLabel(percent: number): string {
-		if (percent === 50) return "50% — recommended";
+		if (percent === DEFAULT_COLOR_PERCENT) {
+			return `${DEFAULT_COLOR_PERCENT}% — recommended`;
+		}
 		if (percent === 0) return "0% — no correction";
 		if (percent === 100) return "100%";
+		return `${percent}%`;
+	}
+
+	private brightnessLabel(percent: number): string {
+		if (percent === DEFAULT_BRIGHTNESS_PERCENT) {
+			return `${DEFAULT_BRIGHTNESS_PERCENT}% — default`;
+		}
+		if (percent <= BRIGHTNESS_UI_MIN) return "20% — minimum";
+		if (percent >= BRIGHTNESS_UI_MAX) return "200% — maximum";
 		return `${percent}%`;
 	}
 }

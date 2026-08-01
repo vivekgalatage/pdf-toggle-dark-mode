@@ -1,17 +1,20 @@
 /* Applied when PDF dark mode is active.
    Values come from plugin settings via CSS variables on body:
-   --pdf-tdm-invert  (0–1, conversion amount / darkness)
-   --pdf-tdm-hue     (e.g. 180deg, color correction)
+   --pdf-tdm-invert      (0–1, conversion amount / darkness)
+   --pdf-tdm-hue         (e.g. 180deg, color correction)
+   --pdf-tdm-brightness  (0.2–2, brightness; min 20%, max 200%)
 */
 
 .pdfViewer.pdf-dark-mode {
 	filter: invert(var(--pdf-tdm-invert, 1))
-		hue-rotate(var(--pdf-tdm-hue, 180deg));
+		hue-rotate(var(--pdf-tdm-hue, 180deg))
+		brightness(var(--pdf-tdm-brightness, 1));
 }
 
 .pdf-sidebar-container img.thumbnailImage.pdf-dark-mode {
 	filter: invert(var(--pdf-tdm-invert, 1))
-		hue-rotate(var(--pdf-tdm-hue, 180deg));
+		hue-rotate(var(--pdf-tdm-hue, 180deg))
+		brightness(var(--pdf-tdm-brightness, 1));
 }
 
 /*
@@ -122,10 +125,31 @@ body.pdf-tdm-hide-link-annotations .pdfViewer .annotationLayer a {
 	line-height: 1;
 }
 
+/* Per-slider reset (rotate-ccw) — compact so three groups still fit */
+.pdf-tdm-toolbar .pdf-tdm-slider-reset {
+	flex-shrink: 0;
+	width: var(--size-4-4, 16px);
+	height: var(--size-4-4, 16px);
+	padding: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+}
+
+.pdf-tdm-toolbar .pdf-tdm-slider-reset:hover {
+	color: var(--text-accent);
+}
+
+.pdf-tdm-toolbar .pdf-tdm-slider-reset svg {
+	width: 12px;
+	height: 12px;
+}
+
 .pdf-tdm-toolbar .pdf-tdm-slider {
-	/* Compact range so it fits next to native PDF toolbar buttons */
-	width: 72px;
-	max-width: 18vw;
+	/* Compact range so three sliders fit next to native PDF toolbar buttons */
+	width: 56px;
+	max-width: 14vw;
 	margin: 0;
 	padding: 0;
 	height: var(--size-4-2, 8px);

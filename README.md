@@ -4,7 +4,7 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 
 ## Features
 
-- **PDF toolbar controls** — dark/light toggle plus **Darkness** and **Color correction** sliders, mounted on the native PDF toolbar (same idea as PDF++’s color palette)
+- **PDF toolbar controls** — dark/light toggle plus **Darkness**, **Color correction**, and **Brightness** sliders, mounted on the native PDF toolbar (same idea as PDF++’s color palette)
 - **Ribbon icon** — sun (light) / moon (dark), with tooltip for the current mode
 - **Status bar item** — same toggle plus `PDF: Light` / `PDF: Dark` label
 - **Command** — *Toggle PDF dark/light mode* (bind a hotkey if you like)
@@ -37,7 +37,8 @@ Open a PDF. On the PDF viewer toolbar you’ll see:
 
 1. **Sun / moon button** — toggle light ↔ dark for PDFs  
 2. **Dark** slider — darkness (only while dark mode is on)  
-3. **Color** slider — color correction (only while dark mode is on)
+3. **Color** slider — color correction (only while dark mode is on)  
+4. **Bright** slider — brightness (only while dark mode is on; 20–200%)
 
 You can also use the ribbon icon, status bar item, or the *Toggle PDF dark/light mode* command.
 
@@ -45,11 +46,12 @@ Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 
 | Setting | What it does | Default |
 |--------|----------------|---------|
-| **Darkness** | How strongly light pages turn dark | 100% (full) |
+| **Darkness** | How strongly light pages turn dark | 90% |
 | **Color correction** | Makes charts/photos look natural after darkening | 50% (recommended) |
+| **Brightness** | CSS `brightness()` after darkening (min 20%, max 200%) | 100% |
 | **Show link outlines** | Show/hide the outline boxes around clickable PDF links | On |
 
-Use **Reset appearance** to restore those defaults. Settings are searchable from Obsidian’s global settings search. Toolbar sliders and Settings stay in sync.
+Each slider has its own **Reset** control (toolbar: small rotate icon; Settings: *Reset darkness* / *Reset color correction* / *Reset brightness*). **Reset appearance** restores all three plus link outlines. Settings are searchable from Obsidian’s global settings search. Toolbar sliders and Settings stay in sync.
 
 ## Develop
 
