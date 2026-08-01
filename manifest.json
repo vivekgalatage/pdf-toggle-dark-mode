@@ -1,7 +1,7 @@
 {
 	"id": "pdf-toggle-dark-mode",
 	"name": "PDF Toggle Dark Mode",
-	"version": "1.0.10",
+	"version": "1.0.11",
 	"minAppVersion": "1.13.0",
 	"description": "Toggle dark/light appearance for PDF viewers and thumbnails.",
 	"author": "Vivek Galatage",

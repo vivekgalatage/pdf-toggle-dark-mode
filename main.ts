@@ -4,6 +4,7 @@ import {
 	PluginSettingTab,
 	SettingDefinitionItem,
 	setIcon,
+	setTooltip,
 } from "obsidian";
 
 const PDF_DARK_CLASS = "pdf-dark-mode";
@@ -15,6 +16,16 @@ const SELECTORS = [
 /** CSS custom properties used by styles.css */
 const CSS_VAR_INVERT = "--pdf-tdm-invert";
 const CSS_VAR_HUE = "--pdf-tdm-hue";
+
+/**
+ * Mounted into Obsidian’s native PDF toolbar (same place PDF++ puts its
+ * color palette). Structure mirrors PDF++: spacer + control group on
+ * toolbarLeftEl (first child of .pdf-toolbar).
+ */
+const TOOLBAR_ROOT_CLS = "pdf-tdm-toolbar";
+const TOOLBAR_SPACER_CLS = "pdf-toolbar-spacer pdf-tdm-spacer";
+/** Main PDF toolbars only — not the find bar (also has .pdf-toolbar). */
+const PDF_TOOLBAR_SELECTOR = ".pdf-toolbar:not(.pdf-findbar)";
 
 /**
  * Body class toggled when link annotation outlines should be hidden.
@@ -85,8 +96,11 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	private ribbonEl: HTMLElement | null = null;
 	private observer: MutationObserver | null = null;
 	private applyTimer: number | null = null;
+	private saveTimer: number | null = null;
 	/** Prior inline values for annotation nodes we overrode with setCssProps. */
 	private outlineStyleBackup = new WeakMap<HTMLElement, OutlineStyleBackup>();
+	/** Live toolbar control roots we mounted (for sync + cleanup). */
+	private toolbarRoots = new Set<HTMLElement>();
 
 	async onload() {
 		await this.loadSettings();
@@ -128,6 +142,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		this.applyAppearanceVars();
 		this.applyLinkAnnotationStyle();
 		this.applyModeToDom();
+		this.injectToolbarControls();
 
 		// Re-apply when layout / leaves change (new PDF opens)
 		this.registerEvent(
@@ -137,7 +152,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			this.app.workspace.on("active-leaf-change", () => this.scheduleApply())
 		);
 
-		// Catch late-mounted PDF.js nodes (thumbnails, pages)
+		// Catch late-mounted PDF.js nodes (thumbnails, pages, toolbars)
 		this.observer = new MutationObserver((mutations) => {
 			if (this.mutationsMayAffectPdf(mutations)) {
 				this.scheduleApply();
@@ -154,8 +169,13 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				window.clearTimeout(this.applyTimer);
 				this.applyTimer = null;
 			}
+			if (this.saveTimer !== null) {
+				window.clearTimeout(this.saveTimer);
+				this.saveTimer = null;
+			}
 			this.clearAppearanceVars();
 			this.clearLinkAnnotationStyle();
+			this.removeAllToolbarControls();
 		});
 	}
 
@@ -166,9 +186,14 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			window.clearTimeout(this.applyTimer);
 			this.applyTimer = null;
 		}
+		if (this.saveTimer !== null) {
+			window.clearTimeout(this.saveTimer);
+			this.saveTimer = null;
+		}
 		this.setClassOnTargets(false);
 		this.clearAppearanceVars();
 		this.clearLinkAnnotationStyle();
+		this.removeAllToolbarControls();
 	}
 
 	/**
@@ -196,10 +221,10 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			}
 			if (
 				node.matches?.(
-					".pdfViewer, .pdf-sidebar-container, .thumbnailImage, .pdf-container, .workspace-leaf, .annotationLayer, .linkAnnotation"
+					".pdfViewer, .pdf-sidebar-container, .thumbnailImage, .pdf-container, .workspace-leaf, .annotationLayer, .linkAnnotation, .pdf-toolbar"
 				) ||
 				node.querySelector?.(
-					".pdfViewer, .pdf-sidebar-container img.thumbnailImage, .thumbnailImage, .annotationLayer, .linkAnnotation"
+					".pdfViewer, .pdf-sidebar-container img.thumbnailImage, .thumbnailImage, .annotationLayer, .linkAnnotation, .pdf-toolbar"
 				)
 			) {
 				return true;
@@ -216,6 +241,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		this.applyTimer = window.setTimeout(() => {
 			this.applyTimer = null;
 			this.applyModeToDom();
+			this.injectToolbarControls();
 		}, 50);
 	}
 
@@ -224,6 +250,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		await this.saveSettings();
 		this.updateUi();
 		this.applyModeToDom();
+		this.syncAllToolbarControls();
 	}
 
 	/** Push user-facing darkness / color settings into CSS variables. */
@@ -324,6 +351,248 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Inject dark/light toggle + appearance sliders into each native PDF
+	 * toolbar (PDF++-style: spacer + control group on the left section).
+	 */
+	injectToolbarControls() {
+		// Drop references to nodes that were removed from the document
+		for (const root of Array.from(this.toolbarRoots)) {
+			if (!root.isConnected) {
+				this.toolbarRoots.delete(root);
+			}
+		}
+
+		document.querySelectorAll(PDF_TOOLBAR_SELECTOR).forEach((toolbar) => {
+			// Cross-window safe (pop-out PDF windows)
+			if (!toolbar.instanceOf(HTMLElement)) {
+				return;
+			}
+			if (toolbar.querySelector(`.${TOOLBAR_ROOT_CLS}`)) {
+				return;
+			}
+			// PDFToolbar.toolbarLeftEl is the first child (no dedicated class).
+			const first = toolbar.firstElementChild;
+			const left =
+				first && first.instanceOf(HTMLElement) ? first : toolbar;
+			this.mountToolbarControls(left);
+		});
+
+		this.syncAllToolbarControls();
+	}
+
+	private mountToolbarControls(parent: HTMLElement) {
+		parent.createDiv({ cls: TOOLBAR_SPACER_CLS });
+		const root = parent.createDiv({ cls: TOOLBAR_ROOT_CLS });
+		this.toolbarRoots.add(root);
+
+		// Toggle button (sun / moon) — same pattern as other PDF toolbar icons
+		const toggleBtn = root.createDiv({
+			cls: "clickable-icon pdf-tdm-toggle",
+			attr: { role: "button", tabindex: "0" },
+		});
+		setIcon(toggleBtn, this.iconName());
+		setTooltip(toggleBtn, this.ribbonTooltip());
+		// Prefer registerDomEvent (auto-cleaned on unload) over addEventListener
+		this.registerDomEvent(toggleBtn, "click", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			void this.toggleMode();
+		});
+		this.registerDomEvent(toggleBtn, "keydown", (e: KeyboardEvent) => {
+			if (e.key === "Enter" || e.key === " ") {
+				e.preventDefault();
+				void this.toggleMode();
+			}
+		});
+
+		// Compact sliders (shown when dark mode is on)
+		const sliders = root.createDiv({ cls: "pdf-tdm-sliders" });
+
+		this.createToolbarSlider(sliders, {
+			key: "darkness",
+			label: "Dark",
+			ariaLabel: "Darkness",
+			title: "Darkness — how strongly light pages turn dark",
+			min: 0,
+			max: 100,
+			getValue: () => Math.round(this.settings.conversionAmount * 100),
+			setValue: (percent) => {
+				this.settings.conversionAmount = clamp(percent / 100, 0, 1);
+			},
+		});
+
+		this.createToolbarSlider(sliders, {
+			key: "color",
+			label: "Color",
+			ariaLabel: "Color correction",
+			title: "Color correction — drag until charts/photos look natural",
+			min: 0,
+			max: 100,
+			getValue: () =>
+				Math.round((this.settings.hueRotation / 360) * 100),
+			setValue: (percent) => {
+				this.settings.hueRotation = clamp((percent / 100) * 360, 0, 360);
+			},
+		});
+	}
+
+	private createToolbarSlider(
+		parent: HTMLElement,
+		opts: {
+			key: string;
+			label: string;
+			ariaLabel: string;
+			title: string;
+			min: number;
+			max: number;
+			getValue: () => number;
+			setValue: (percent: number) => void;
+		}
+	) {
+		const group = parent.createDiv({
+			cls: `pdf-tdm-slider-group pdf-tdm-slider-${opts.key}`,
+		});
+		group.createSpan({
+			cls: "pdf-tdm-slider-label",
+			text: opts.label,
+		});
+
+		const input = group.createEl("input", {
+			cls: `slider pdf-tdm-slider pdf-tdm-slider-input-${opts.key}`,
+			attr: {
+				type: "range",
+				min: String(opts.min),
+				max: String(opts.max),
+				step: "1",
+				"aria-label": opts.ariaLabel,
+			},
+		});
+		input.value = String(opts.getValue());
+		setTooltip(input, opts.title);
+
+		const valueEl = group.createSpan({
+			cls: "pdf-tdm-slider-value",
+			text: `${opts.getValue()}%`,
+		});
+
+		const onInput = () => {
+			const percent = clamp(
+				Math.round(Number(input.value)),
+				opts.min,
+				opts.max
+			);
+			opts.setValue(percent);
+			valueEl.setText(`${percent}%`);
+			this.applyAppearanceVars();
+			if (this.settings.isDark) {
+				this.setClassOnTargets(true);
+			}
+			// Keep other open PDF toolbars in sync (live)
+			this.syncAllToolbarControls(input);
+			this.scheduleSaveSettings();
+		};
+
+		this.registerDomEvent(input, "input", onInput);
+		this.registerDomEvent(input, "change", onInput);
+	}
+
+	/** Debounced persist so slider drags don’t thrash disk. */
+	private scheduleSaveSettings() {
+		if (this.saveTimer !== null) {
+			window.clearTimeout(this.saveTimer);
+		}
+		this.saveTimer = window.setTimeout(() => {
+			this.saveTimer = null;
+			void this.saveSettings();
+		}, 200);
+	}
+
+	/**
+	 * Refresh icons, slider values, and visibility on every mounted toolbar.
+	 * @param exceptInput while dragging, skip this input and skip icon/tooltip
+	 *        rewrites (only mirror values to other open PDF toolbars)
+	 */
+	syncAllToolbarControls(exceptInput?: HTMLInputElement) {
+		const isDark = this.settings.isDark;
+		const darknessPct = Math.round(this.settings.conversionAmount * 100);
+		const colorPct = Math.round((this.settings.hueRotation / 360) * 100);
+		const icon = this.iconName();
+		const tooltip = this.ribbonTooltip();
+		const fullChrome = !exceptInput;
+
+		for (const root of this.toolbarRoots) {
+			if (!root.isConnected) {
+				continue;
+			}
+
+			if (fullChrome) {
+				const toggleBtn =
+					root.querySelector<HTMLElement>(".pdf-tdm-toggle");
+				if (toggleBtn) {
+					setIcon(toggleBtn, icon);
+					setTooltip(toggleBtn, tooltip);
+					toggleBtn.toggleClass("is-active", isDark);
+				}
+
+				const sliders =
+					root.querySelector<HTMLElement>(".pdf-tdm-sliders");
+				if (sliders) {
+					sliders.toggleClass("is-visible", isDark);
+					sliders.setAttr(
+						"aria-hidden",
+						isDark ? "false" : "true"
+					);
+				}
+			}
+
+			const darknessInput = root.querySelector<HTMLInputElement>(
+				".pdf-tdm-slider-input-darkness"
+			);
+			const darknessVal = root.querySelector<HTMLElement>(
+				".pdf-tdm-slider-darkness .pdf-tdm-slider-value"
+			);
+			if (darknessInput && darknessInput !== exceptInput) {
+				darknessInput.value = String(darknessPct);
+			}
+			if (darknessVal) {
+				darknessVal.setText(`${darknessPct}%`);
+			}
+
+			const colorInput = root.querySelector<HTMLInputElement>(
+				".pdf-tdm-slider-input-color"
+			);
+			const colorVal = root.querySelector<HTMLElement>(
+				".pdf-tdm-slider-color .pdf-tdm-slider-value"
+			);
+			if (colorInput && colorInput !== exceptInput) {
+				colorInput.value = String(colorPct);
+			}
+			if (colorVal) {
+				colorVal.setText(`${colorPct}%`);
+			}
+		}
+	}
+
+	private removeAllToolbarControls() {
+		for (const root of Array.from(this.toolbarRoots)) {
+			const prev = root.previousElementSibling;
+			if (
+				prev &&
+				prev.instanceOf(HTMLElement) &&
+				prev.classList.contains("pdf-tdm-spacer")
+			) {
+				prev.remove();
+			}
+			root.remove();
+		}
+		this.toolbarRoots.clear();
+		// Orphaned controls after hot-reload / partial cleanup
+		document
+			.querySelectorAll(`.${TOOLBAR_ROOT_CLS}, .pdf-tdm-spacer`)
+			.forEach((el) => el.remove());
+	}
+
 	private updateUi() {
 		const label = this.modeLabel();
 		const icon = this.iconName();
@@ -348,6 +617,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			this.statusBarEl.setAttr("aria-label", tooltip);
 			this.statusBarEl.setAttr("title", tooltip);
 		}
+
+		this.syncAllToolbarControls();
 	}
 
 	private modeLabel(): string {
@@ -408,6 +679,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		if (this.settings.isDark) {
 			this.setClassOnTargets(true);
 		}
+		this.syncAllToolbarControls();
 	}
 }
 

@@ -4,12 +4,13 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 
 ## Features
 
+- **PDF toolbar controls** — dark/light toggle plus **Darkness** and **Color correction** sliders, mounted on the native PDF toolbar (same idea as PDF++’s color palette)
 - **Ribbon icon** — sun (light) / moon (dark), with tooltip for the current mode
 - **Status bar item** — same toggle plus `PDF: Light` / `PDF: Dark` label
 - **Command** — *Toggle PDF dark/light mode* (bind a hotkey if you like)
-- **Settings** — **Darkness**, **Color correction**, and **Show link outlines** (no CSS knowledge required)
+- **Settings** — same appearance options (also available from Settings → PDF Toggle Dark Mode)
 - **Persistence** — mode and appearance settings are saved across restarts
-- **Late PDF opens** — classes re-apply when new PDF views mount
+- **Late PDF opens** — classes and toolbar controls re-apply when new PDF views mount
 
 ## Install (manual / development)
 
@@ -32,7 +33,13 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 
 ## Usage
 
-Open a PDF, then click the ribbon or status bar control (or run the command).
+Open a PDF. On the PDF viewer toolbar you’ll see:
+
+1. **Sun / moon button** — toggle light ↔ dark for PDFs  
+2. **Dark** slider — darkness (only while dark mode is on)  
+3. **Color** slider — color correction (only while dark mode is on)
+
+You can also use the ribbon icon, status bar item, or the *Toggle PDF dark/light mode* command.
 
 Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 
@@ -42,7 +49,7 @@ Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 | **Color correction** | Makes charts/photos look natural after darkening | 50% (recommended) |
 | **Show link outlines** | Show/hide the outline boxes around clickable PDF links | On |
 
-Use **Reset appearance** to restore those defaults. Settings are searchable from Obsidian’s global settings search.
+Use **Reset appearance** to restore those defaults. Settings are searchable from Obsidian’s global settings search. Toolbar sliders and Settings stay in sync.
 
 ## Develop
 

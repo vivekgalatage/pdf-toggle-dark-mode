@@ -60,3 +60,96 @@ body.pdf-tdm-hide-link-annotations .pdfViewer .annotationLayer a {
 	width: 14px;
 	height: 14px;
 }
+
+/*
+ * PDF toolbar controls (PDF++-style mount on toolbar left).
+ * Layout: [spacer] [toggle] [Dark slider] [Color slider]
+ */
+.pdf-tdm-toolbar {
+	user-select: none;
+	-webkit-user-select: none;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: var(--size-2-2, 4px);
+	flex-shrink: 0;
+	min-width: 0;
+}
+
+.pdf-tdm-toolbar .pdf-tdm-toggle {
+	flex-shrink: 0;
+}
+
+.pdf-tdm-toolbar .pdf-tdm-toggle.is-active {
+	color: var(--interactive-accent);
+}
+
+/* Sliders only when dark mode is on (toggled via .is-visible) */
+.pdf-tdm-sliders {
+	display: none;
+	flex-direction: row;
+	align-items: center;
+	gap: var(--size-4-2, 8px);
+	min-width: 0;
+}
+
+.pdf-tdm-sliders.is-visible {
+	display: flex;
+}
+
+.pdf-tdm-slider-group {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: var(--size-2-2, 4px);
+	min-width: 0;
+}
+
+.pdf-tdm-slider-label {
+	font-size: var(--font-ui-smaller, 11px);
+	color: var(--text-muted);
+	white-space: nowrap;
+	line-height: 1;
+}
+
+.pdf-tdm-slider-value {
+	font-size: var(--font-ui-smaller, 11px);
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+	min-width: 3ch;
+	text-align: right;
+	white-space: nowrap;
+	line-height: 1;
+}
+
+.pdf-tdm-toolbar .pdf-tdm-slider {
+	/* Compact range so it fits next to native PDF toolbar buttons */
+	width: 72px;
+	max-width: 18vw;
+	margin: 0;
+	padding: 0;
+	height: var(--size-4-2, 8px);
+	cursor: pointer;
+}
+
+/* Narrow toolbars / phone: hide percent text, keep sliders usable */
+.is-phone .pdf-tdm-slider-value,
+.is-mobile .pdf-tdm-slider-label {
+	display: none;
+}
+
+.is-phone .pdf-tdm-toolbar .pdf-tdm-slider {
+	width: 56px;
+}
+
+/* Very tight widths: stack less, prefer icon-only if needed */
+@media (max-width: 480px) {
+	.pdf-tdm-slider-label,
+	.pdf-tdm-slider-value {
+		display: none;
+	}
+
+	.pdf-tdm-toolbar .pdf-tdm-slider {
+		width: 48px;
+	}
+}
