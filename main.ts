@@ -262,14 +262,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		// System appearance: fires when OS light/dark flips (Obsidian may lag a tick)
 		const media = window.matchMedia("(prefers-color-scheme: dark)");
 		const onSystemScheme = () => this.scheduleThemeSync();
-		if (typeof media.addEventListener === "function") {
-			media.addEventListener("change", onSystemScheme);
-			this.register(() => media.removeEventListener("change", onSystemScheme));
-		} else {
-			// Older Chromium (Safari / Electron edge cases)
-			media.addListener(onSystemScheme);
-			this.register(() => media.removeListener(onSystemScheme));
-		}
+		media.addEventListener("change", onSystemScheme);
+		this.register(() => media.removeEventListener("change", onSystemScheme));
 
 		// Catch late-mounted PDF.js nodes (thumbnails, pages, toolbars)
 		this.observer = new MutationObserver((mutations) => {
