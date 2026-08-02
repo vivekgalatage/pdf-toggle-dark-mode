@@ -8,9 +8,17 @@ import {
 } from "obsidian";
 
 const PDF_DARK_CLASS = "pdf-dark-mode";
+/**
+ * Targets that receive the dark-mode class (and styles.css filter).
+ * - .pdfViewer: full PDF leaf + native note embeds (![[file.pdf]])
+ * - thumbnail images: sidebar thumbnails
+ * - .pdf-cropped-embed: PDF++ rectangular clippings
+ *   (![[file.pdf#page=N&rect=...]]) — rendered as <img> inside this container
+ */
 const SELECTORS = [
 	".pdfViewer",
 	".pdf-sidebar-container img.thumbnailImage",
+	".pdf-cropped-embed",
 ] as const;
 
 /** CSS custom properties used by styles.css */
@@ -303,10 +311,10 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			}
 			if (
 				node.matches?.(
-					".pdfViewer, .pdf-sidebar-container, .thumbnailImage, .pdf-container, .workspace-leaf, .annotationLayer, .linkAnnotation, .pdf-toolbar"
+					".pdfViewer, .pdf-sidebar-container, .thumbnailImage, .pdf-container, .workspace-leaf, .annotationLayer, .linkAnnotation, .pdf-toolbar, .pdf-cropped-embed, .internal-embed"
 				) ||
 				node.querySelector?.(
-					".pdfViewer, .pdf-sidebar-container img.thumbnailImage, .thumbnailImage, .annotationLayer, .linkAnnotation, .pdf-toolbar"
+					".pdfViewer, .pdf-sidebar-container img.thumbnailImage, .thumbnailImage, .annotationLayer, .linkAnnotation, .pdf-toolbar, .pdf-cropped-embed"
 				)
 			) {
 				return true;

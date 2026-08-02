@@ -1,6 +1,6 @@
 {
 	"name": "pdf-toggle-dark-mode",
-	"version": "1.0.12",
+	"version": "1.0.13",
 	"description": "Obsidian plugin: toggle dark/light appearance for PDF viewers",
 	"main": "main.js",
 	"scripts": {

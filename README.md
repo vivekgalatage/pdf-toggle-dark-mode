@@ -1,6 +1,6 @@
 # PDF Toggle Dark Mode
 
-Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar thumbnails.
+Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar thumbnails. If [PDF++](https://github.com/RyotaUshio/obsidian-pdf-plus) is installed, rectangular cropped embeds are covered too.
 
 ## Features
 
@@ -11,6 +11,7 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 - **Settings** — same appearance options (also available from Settings → PDF Toggle Dark Mode)
 - **Persistence** — mode and appearance settings are saved across restarts
 - **Late PDF opens** — classes and toolbar controls re-apply when new PDF views mount
+- **PDF++ cropped embeds** *(optional — requires [PDF++](https://github.com/RyotaUshio/obsidian-pdf-plus) installed and enabled)* — rectangular clippings (`![[file.pdf#page=N&rect=…]]`, class `pdf-cropped-embed`) use the same dark/light mode and Darkness / Color / Brightness settings as full PDF viewers. Without PDF++, those embeds are not created, so this feature simply does nothing.
 
 ## Install (manual / development)
 

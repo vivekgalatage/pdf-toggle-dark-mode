@@ -17,6 +17,14 @@
 		brightness(var(--pdf-tdm-brightness, 1));
 }
 
+/* PDF++ rectangular selection embeds (![[file.pdf#page=N&rect=...]]) */
+.internal-embed.pdf-cropped-embed.pdf-dark-mode,
+.pdf-cropped-embed.pdf-dark-mode {
+	filter: invert(var(--pdf-tdm-invert, 1))
+		hue-rotate(var(--pdf-tdm-hue, 180deg))
+		brightness(var(--pdf-tdm-brightness, 1));
+}
+
 /*
  * Fallback hide for link annotation outlines (body class from main.ts).
  * Per-node overrides for PDF.js inline borders use setCssProps in main.ts so
