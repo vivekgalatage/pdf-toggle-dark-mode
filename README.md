@@ -10,6 +10,7 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 - **Command** — *Toggle PDF dark/light mode* (bind a hotkey if you like)
 - **Settings** — same appearance options (also available from Settings → PDF Toggle Dark Mode)
 - **Persistence** — mode and appearance settings are saved across restarts
+- **Adapt to theme** — optional setting so PDF dark/light follows Obsidian’s appearance (and system light/dark when Obsidian is set to adapt to system)
 - **Late PDF opens** — classes and toolbar controls re-apply when new PDF views mount
 - **PDF++ cropped embeds** *(optional — requires [PDF++](https://github.com/RyotaUshio/obsidian-pdf-plus) installed and enabled)* — rectangular clippings (`![[file.pdf#page=N&rect=…]]`, class `pdf-cropped-embed`) use the same dark/light mode and Darkness / Color / Brightness settings as full PDF viewers. Without PDF++, those embeds are not created, so this feature simply does nothing.
 
@@ -47,6 +48,7 @@ Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 
 | Setting | What it does | Default |
 |--------|----------------|---------|
+| **Adapt to theme** | PDF dark/light follows Obsidian (and system if Obsidian adapts to system). Manual toggles still work; the next theme change re-syncs. | Off |
 | **Darkness** | How strongly light pages turn dark | 90% |
 | **Color correction** | Makes charts/photos look natural after darkening | 50% (recommended) |
 | **Brightness** | CSS `brightness()` after darkening (min 20%, max 200%) | 100% |

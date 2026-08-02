@@ -84,6 +84,11 @@ type OutlineStyleBackup = Record<string, string>;
 interface PdfDarkModeSettings {
 	isDark: boolean;
 	/**
+	 * When true, PDF dark/light mode follows Obsidian’s theme (and system
+	 * appearance when Obsidian is set to adapt to system).
+	 */
+	adaptToTheme: boolean;
+	/**
 	 * How strongly light PDF pages turn dark (CSS invert amount).
 	 * 0 = no change, 1 = full conversion. Default 0.9 (90%).
 	 */
@@ -108,6 +113,7 @@ interface PdfDarkModeSettings {
 
 const DEFAULT_SETTINGS: PdfDarkModeSettings = {
 	isDark: false,
+	adaptToTheme: false,
 	conversionAmount: 0.9,
 	hueRotation: 180,
 	brightness: 1,
@@ -187,6 +193,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	private observer: MutationObserver | null = null;
 	private applyTimer: number | null = null;
 	private saveTimer: number | null = null;
+	private themeSyncTimer: number | null = null;
 	/** Prior inline values for annotation nodes we overrode with setCssProps. */
 	private outlineStyleBackup = new WeakMap<HTMLElement, OutlineStyleBackup>();
 	/** Live toolbar control roots we mounted (for sync + cleanup). */
@@ -194,6 +201,11 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
+
+		// Match Obsidian theme before first paint of PDF controls when enabled
+		if (this.settings.adaptToTheme) {
+			this.settings.isDark = this.isAppThemeDark();
+		}
 
 		this.ribbonEl = this.addRibbonIcon(
 			this.iconName(),
@@ -242,6 +254,23 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			this.app.workspace.on("active-leaf-change", () => this.scheduleApply())
 		);
 
+		// Obsidian theme / base color scheme changes (incl. “adapt to system”)
+		this.registerEvent(
+			this.app.workspace.on("css-change", () => this.scheduleThemeSync())
+		);
+
+		// System appearance: fires when OS light/dark flips (Obsidian may lag a tick)
+		const media = window.matchMedia("(prefers-color-scheme: dark)");
+		const onSystemScheme = () => this.scheduleThemeSync();
+		if (typeof media.addEventListener === "function") {
+			media.addEventListener("change", onSystemScheme);
+			this.register(() => media.removeEventListener("change", onSystemScheme));
+		} else {
+			// Older Chromium (Safari / Electron edge cases)
+			media.addListener(onSystemScheme);
+			this.register(() => media.removeListener(onSystemScheme));
+		}
+
 		// Catch late-mounted PDF.js nodes (thumbnails, pages, toolbars)
 		this.observer = new MutationObserver((mutations) => {
 			if (this.mutationsMayAffectPdf(mutations)) {
@@ -263,6 +292,10 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				window.clearTimeout(this.saveTimer);
 				this.saveTimer = null;
 			}
+			if (this.themeSyncTimer !== null) {
+				window.clearTimeout(this.themeSyncTimer);
+				this.themeSyncTimer = null;
+			}
 			this.clearAppearanceVars();
 			this.clearLinkAnnotationStyle();
 			this.removeAllToolbarControls();
@@ -280,10 +313,58 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			window.clearTimeout(this.saveTimer);
 			this.saveTimer = null;
 		}
+		if (this.themeSyncTimer !== null) {
+			window.clearTimeout(this.themeSyncTimer);
+			this.themeSyncTimer = null;
+		}
 		this.setClassOnTargets(false);
 		this.clearAppearanceVars();
 		this.clearLinkAnnotationStyle();
 		this.removeAllToolbarControls();
+	}
+
+	/** Whether Obsidian’s current UI theme is dark (`theme-dark` on body). */
+	isAppThemeDark(): boolean {
+		return document.body.classList.contains("theme-dark");
+	}
+
+	/**
+	 * Debounce theme-driven mode sync so css-change + system media query
+	 * can settle after Obsidian applies `theme-dark` / `theme-light`.
+	 */
+	private scheduleThemeSync() {
+		if (!this.settings.adaptToTheme) {
+			return;
+		}
+		if (this.themeSyncTimer !== null) {
+			window.clearTimeout(this.themeSyncTimer);
+		}
+		this.themeSyncTimer = window.setTimeout(() => {
+			this.themeSyncTimer = null;
+			void this.syncModeFromTheme();
+		}, 50);
+	}
+
+	/**
+	 * When Adapt to theme is on, set PDF dark/light from Obsidian’s theme.
+	 * No-op when the setting is off.
+	 */
+	async syncModeFromTheme() {
+		if (!this.settings.adaptToTheme) {
+			return;
+		}
+		const isDark = this.isAppThemeDark();
+		if (this.settings.isDark === isDark) {
+			// Still refresh DOM in case targets mounted while theme was settling
+			this.applyModeToDom();
+			this.syncAllToolbarControls();
+			return;
+		}
+		this.settings.isDark = isDark;
+		await this.saveSettings();
+		this.updateUi();
+		this.applyModeToDom();
+		this.syncAllToolbarControls();
 	}
 
 	/**
@@ -337,6 +418,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 
 	async toggleMode() {
 		this.settings.isDark = !this.settings.isDark;
+		// Manual choice is sticky until the next theme change when adapt is on
 		await this.saveSettings();
 		this.updateUi();
 		this.applyModeToDom();
@@ -746,7 +828,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			.forEach((el) => el.remove());
 	}
 
-	private updateUi() {
+	/** Refresh ribbon, status bar, and toolbar chrome for the current mode. */
+	updateUi() {
 		const label = this.modeLabel();
 		const icon = this.iconName();
 		const tooltip = this.ribbonTooltip();
@@ -784,9 +867,12 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	}
 
 	private ribbonTooltip(): string {
+		const adapt = this.settings.adaptToTheme
+			? " · adapting to theme"
+			: "";
 		return this.settings.isDark
-			? "PDF appearance: Dark (click for Light)"
-			: "PDF appearance: Light (click for Dark)";
+			? `PDF appearance: Dark (click for Light)${adapt}`
+			: `PDF appearance: Light (click for Dark)${adapt}`;
 	}
 
 	async loadSettings() {
@@ -821,6 +907,10 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		if (raw && typeof raw.showLinkAnnotations !== "boolean") {
 			this.settings.showLinkAnnotations =
 				DEFAULT_SETTINGS.showLinkAnnotations;
+		}
+		this.settings.adaptToTheme = Boolean(this.settings.adaptToTheme);
+		if (raw && typeof raw.adaptToTheme !== "boolean") {
+			this.settings.adaptToTheme = DEFAULT_SETTINGS.adaptToTheme;
 		}
 	}
 
@@ -882,6 +972,22 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 					{
 						name: "About",
 						desc: "These options only affect how PDFs look when dark mode is on. They do not change the rest of Obsidian.",
+					},
+					{
+						name: "Adapt to theme",
+						desc: "When on, PDF dark/light mode follows Obsidian’s appearance. If Obsidian uses “Adapt to system”, system-wide light/dark changes are followed too. You can still toggle manually; the next theme change will re-sync.",
+						aliases: [
+							"follow theme",
+							"system theme",
+							"match theme",
+							"auto dark",
+							"adapt to system",
+						],
+						control: {
+							type: "toggle",
+							key: "adaptToTheme",
+							defaultValue: false,
+						},
 					},
 					{
 						name: "Darkness",
@@ -1031,6 +1137,15 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 		if (key === "brightnessPercent") {
 			this.plugin.settings.brightness = percentToBrightness(Number(value));
 			await this.plugin.onAppearanceSettingChange();
+			return;
+		}
+		if (key === "adaptToTheme") {
+			this.plugin.settings.adaptToTheme = Boolean(value);
+			await this.plugin.saveSettings();
+			if (this.plugin.settings.adaptToTheme) {
+				await this.plugin.syncModeFromTheme();
+			}
+			this.plugin.updateUi();
 			return;
 		}
 		await super.setControlValue(key, value);
