@@ -861,9 +861,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			if (!w || !h) {
 				return null;
 			}
-			// Prefer the image's document (pop-out windows)
-			const doc = source.doc ?? document;
-			const canvas = doc.createElement("canvas");
+			// Detached canvas (global createEl — no parent, not appended to DOM)
+			const canvas = createEl("canvas");
 			canvas.width = w;
 			canvas.height = h;
 			const ctx = canvas.getContext("2d");
