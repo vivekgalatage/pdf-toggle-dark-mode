@@ -26,6 +26,29 @@
 }
 
 /*
+ * Lightbox CSS-filter fallback only (when canvas bake fails).
+ * Prefer data-pdf-tdm-baked src swap — no filter during zoom animation.
+ */
+.lightbox .media-wrapper img.pdf-dark-mode,
+.lightbox .lightbox-media img.pdf-dark-mode {
+	filter: invert(var(--pdf-tdm-invert, 1))
+		hue-rotate(var(--pdf-tdm-hue, 180deg))
+		brightness(var(--pdf-tdm-brightness, 1));
+}
+
+/*
+ * Zero-flash + smooth open: body class on pointerdown of a dark PDF++ crop.
+ * Hide the raw lightbox img until we swap in baked inverted pixels (or the
+ * CSS-filter fallback class). Do NOT apply filter here — filter + transform
+ * during Obsidian’s zoom animation is what made the open feel sluggish.
+ */
+body.pdf-tdm-expect-pdf-lightbox .lightbox .media-wrapper img:not([data-pdf-tdm-baked]):not(.pdf-dark-mode),
+body.pdf-tdm-expect-pdf-lightbox .lightbox .lightbox-media img:not([data-pdf-tdm-baked]):not(.pdf-dark-mode),
+body.pdf-tdm-expect-pdf-lightbox .lightbox img:not([data-pdf-tdm-baked]):not(.pdf-dark-mode) {
+	visibility: hidden;
+}
+
+/*
  * Fallback hide for link annotation outlines (body class from main.ts).
  * Per-node overrides for PDF.js inline borders use setCssProps in main.ts so
  * this file stays free of review-flagged patterns. Links remain clickable.

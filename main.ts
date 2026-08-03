@@ -14,12 +14,36 @@ const PDF_DARK_CLASS = "pdf-dark-mode";
  * - thumbnail images: sidebar thumbnails
  * - .pdf-cropped-embed: PDF++ rectangular clippings
  *   (![[file.pdf#page=N&rect=...]]) — rendered as <img> inside this container
+ *
+ * Lightbox images are handled separately in {@link setClassOnLightboxPdfImgs}:
+ * Obsidian’s media lightbox is shared for all images; we only invert imgs
+ * whose src matches a PDF++ cropped embed (never generic photo lightboxes).
  */
 const SELECTORS = [
 	".pdfViewer",
 	".pdf-sidebar-container img.thumbnailImage",
 	".pdf-cropped-embed",
 ] as const;
+
+/** Image inside Obsidian’s media lightbox content area. */
+const LIGHTBOX_IMG_SELECTOR =
+	".lightbox .media-wrapper img, .lightbox .lightbox-media img";
+
+/**
+ * Body class set on pointerdown of a dark-mode PDF++ crop, before the
+ * lightbox mounts. Hides the raw lightbox img until we swap in a
+ * pre-baked inverted src (or CSS-filter fallback) — avoids a light flash
+ * without running CSS filter during the zoom animation.
+ */
+const EXPECT_PDF_LIGHTBOX_CLASS = "pdf-tdm-expect-pdf-lightbox";
+
+/** Safety clear if the lightbox never opens after a crop click. */
+const EXPECT_PDF_LIGHTBOX_TIMEOUT_MS = 1000;
+
+/** Marks a lightbox img whose pixels were inverted via canvas (no CSS filter). */
+const BAKED_ATTR = "data-pdf-tdm-baked";
+/** Original (pre-bake) src so we can restore on light mode / close. */
+const ORIGINAL_SRC_ATTR = "data-pdf-tdm-original-src";
 
 /** CSS custom properties used by styles.css */
 const CSS_VAR_INVERT = "--pdf-tdm-invert";
@@ -194,6 +218,23 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	private applyTimer: number | null = null;
 	private saveTimer: number | null = null;
 	private themeSyncTimer: number | null = null;
+	/** Clears {@link EXPECT_PDF_LIGHTBOX_CLASS} if lightbox never mounts. */
+	private expectLightboxTimer: number | null = null;
+	/**
+	 * Crop img src from the last dark-mode PDF++ crop pointerdown.
+	 * Used to match the lightbox without rescanning every embed on each mutation.
+	 */
+	private pendingCropSrc: string | null = null;
+	/**
+	 * Canvas-baked inverted data URL for {@link pendingCropSrc}.
+	 * Lightbox animates these pixels without a live CSS filter (smooth zoom).
+	 */
+	private pendingBakedSrc: string | null = null;
+	/**
+	 * Cache: `${src}|invert|hue|brightness` → baked data URL.
+	 * Invalidated when appearance settings change.
+	 */
+	private bakeCache = new Map<string, string>();
 	/** Prior inline values for annotation nodes we overrode with setCssProps. */
 	private outlineStyleBackup = new WeakMap<HTMLElement, OutlineStyleBackup>();
 	/** Live toolbar control roots we mounted (for sync + cleanup). */
@@ -265,9 +306,24 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		media.addEventListener("change", onSystemScheme);
 		this.register(() => media.removeEventListener("change", onSystemScheme));
 
+		// Before lightbox mounts: mark body so CSS can invert on first paint
+		this.registerDomEvent(
+			document,
+			"pointerdown",
+			(e: PointerEvent) => {
+				this.onPossiblePdfCropLightboxGesture(e);
+			},
+			{ capture: true }
+		);
+
 		// Catch late-mounted PDF.js nodes (thumbnails, pages, toolbars)
+		// and lightbox open/close (immediate path — no debounce flash).
+		// Lightbox is handled alone so we do not schedule a full PDF rescan
+		// (toolbar inject + querySelectorAll) on every lightbox DOM tick.
 		this.observer = new MutationObserver((mutations) => {
-			if (this.mutationsMayAffectPdf(mutations)) {
+			if (this.mutationsIncludeLightbox(mutations)) {
+				this.applyLightboxDarkModeImmediate();
+			} else if (this.mutationsMayAffectPdf(mutations)) {
 				this.scheduleApply();
 			}
 		});
@@ -290,6 +346,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				window.clearTimeout(this.themeSyncTimer);
 				this.themeSyncTimer = null;
 			}
+			this.clearExpectPdfLightbox();
+			this.clearBakeState();
 			this.clearAppearanceVars();
 			this.clearLinkAnnotationStyle();
 			this.removeAllToolbarControls();
@@ -311,6 +369,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			window.clearTimeout(this.themeSyncTimer);
 			this.themeSyncTimer = null;
 		}
+		this.clearExpectPdfLightbox();
+		this.clearBakeState();
 		this.setClassOnTargets(false);
 		this.clearAppearanceVars();
 		this.clearLinkAnnotationStyle();
@@ -384,6 +444,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			if (!node.instanceOf(HTMLElement)) {
 				continue;
 			}
+			// Note: .lightbox is intentionally excluded — handled by
+			// mutationsIncludeLightbox → applyLightboxDarkModeImmediate only.
 			if (
 				node.matches?.(
 					".pdfViewer, .pdf-sidebar-container, .thumbnailImage, .pdf-container, .workspace-leaf, .annotationLayer, .linkAnnotation, .pdf-toolbar, .pdf-cropped-embed, .internal-embed"
@@ -396,6 +458,136 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			}
 		}
 		return false;
+	}
+
+	/** True when a mutation batch adds/removes lightbox UI. */
+	private mutationsIncludeLightbox(mutations: MutationRecord[]): boolean {
+		for (const mutation of mutations) {
+			if (
+				this.nodesMatchLightbox(mutation.addedNodes) ||
+				this.nodesMatchLightbox(mutation.removedNodes)
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private nodesMatchLightbox(nodes: NodeList): boolean {
+		for (let i = 0; i < nodes.length; i++) {
+			const node = nodes[i];
+			if (!node.instanceOf(HTMLElement)) {
+				continue;
+			}
+			if (
+				node.matches?.(".lightbox, .lightbox-media, .media-wrapper") ||
+				node.querySelector?.(
+					".lightbox, .lightbox-media, .media-wrapper"
+				) ||
+				// Img may be inserted alone under an existing lightbox shell
+				(node.instanceOf(HTMLImageElement) &&
+					Boolean(node.closest?.(".lightbox")))
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * pointerdown on a PDF++ crop while dark mode is on → expect a lightbox.
+	 * Pre-bake inverted pixels from the already-loaded crop img so the popup
+	 * can animate without a live CSS filter (filter+transform is janky).
+	 */
+	private onPossiblePdfCropLightboxGesture(e: PointerEvent) {
+		if (!this.settings.isDark) {
+			return;
+		}
+		// e.target is EventTarget; Node.instanceOf is the cross-window check
+		const target = e.target as Node | null;
+		if (!target || !target.instanceOf(HTMLElement)) {
+			return;
+		}
+		const crop = target.closest(".pdf-cropped-embed");
+		if (!crop) {
+			return;
+		}
+		const cropImg = crop.querySelector("img");
+		if (!cropImg || !cropImg.instanceOf(HTMLImageElement)) {
+			return;
+		}
+		const src = cropImg.getAttribute("src");
+		if (!src) {
+			return;
+		}
+		this.pendingCropSrc = src;
+		this.pendingBakedSrc = this.getBakedInvertedSrc(cropImg, src);
+		this.beginExpectPdfLightbox();
+	}
+
+	private beginExpectPdfLightbox() {
+		document.body.classList.add(EXPECT_PDF_LIGHTBOX_CLASS);
+		if (this.expectLightboxTimer !== null) {
+			window.clearTimeout(this.expectLightboxTimer);
+		}
+		this.expectLightboxTimer = window.setTimeout(() => {
+			this.expectLightboxTimer = null;
+			this.clearExpectPdfLightbox();
+			this.pendingCropSrc = null;
+			this.pendingBakedSrc = null;
+		}, EXPECT_PDF_LIGHTBOX_TIMEOUT_MS);
+	}
+
+	private clearExpectPdfLightbox() {
+		document.body.classList.remove(EXPECT_PDF_LIGHTBOX_CLASS);
+		if (this.expectLightboxTimer !== null) {
+			window.clearTimeout(this.expectLightboxTimer);
+			this.expectLightboxTimer = null;
+		}
+	}
+
+	private clearBakeState() {
+		this.pendingCropSrc = null;
+		this.pendingBakedSrc = null;
+		this.bakeCache.clear();
+	}
+
+	/** Drop cached bakes when invert/hue/brightness change. */
+	private invalidateBakeCache() {
+		this.bakeCache.clear();
+		this.pendingBakedSrc = null;
+	}
+
+	/**
+	 * Sync lightbox invert immediately (no scheduleApply debounce).
+	 * Prefers canvas-baked src (smooth); CSS filter is fallback only.
+	 */
+	private applyLightboxDarkModeImmediate() {
+		this.setClassOnLightboxPdfImgs(this.settings.isDark);
+
+		const lightboxOpen = Boolean(document.querySelector(".lightbox"));
+		if (!lightboxOpen) {
+			// Closed — drop expect / pending so photo lightboxes stay clean
+			this.clearExpectPdfLightbox();
+			this.pendingCropSrc = null;
+			this.pendingBakedSrc = null;
+			return;
+		}
+
+		// Keep expect (raw img hidden) until the media img is ready.
+		const lbImg = document.querySelector(LIGHTBOX_IMG_SELECTOR);
+		if (!this.settings.isDark) {
+			this.clearExpectPdfLightbox();
+			return;
+		}
+		if (
+			lbImg &&
+			lbImg.instanceOf(HTMLElement) &&
+			(lbImg.hasAttribute(BAKED_ATTR) ||
+				lbImg.classList.contains(PDF_DARK_CLASS))
+		) {
+			this.clearExpectPdfLightbox();
+		}
 	}
 
 	/** Debounce DOM scans triggered by layout/mutation noise. */
@@ -518,6 +710,194 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				el.classList.toggle(PDF_DARK_CLASS, isDark);
 			});
 		}
+		// Lightbox is generic media UI — invert only when the img is a PDF crop
+		this.setClassOnLightboxPdfImgs(isDark);
+	}
+
+	/**
+	 * Invert lightbox images that came from a PDF++ crop only.
+	 *
+	 * Preferred path: replace src with a canvas-baked inverted data URL
+	 * (no CSS filter → zoom animation stays cheap). Fallback: .pdf-dark-mode
+	 * CSS filter when bake is unavailable.
+	 *
+	 * Matching: pending crop src from pointerdown, else original-src attr,
+	 * else scan open crop embeds (rare: toggle dark while lightbox already open).
+	 */
+	private setClassOnLightboxPdfImgs(isDark: boolean) {
+		const lightboxImgs = document.querySelectorAll(LIGHTBOX_IMG_SELECTOR);
+		if (lightboxImgs.length === 0) {
+			return;
+		}
+
+		// Only build the embed-src set when we cannot match via pending click
+		let cropSrcs: Set<string> | null = null;
+		const srcIsPdfCrop = (originalSrc: string | null): boolean => {
+			if (!originalSrc) {
+				return false;
+			}
+			if (this.pendingCropSrc && originalSrc === this.pendingCropSrc) {
+				return true;
+			}
+			if (!cropSrcs) {
+				cropSrcs = this.collectPdfCropEmbedSrcs();
+			}
+			return cropSrcs.has(originalSrc);
+		};
+
+		lightboxImgs.forEach((node) => {
+			if (!node.instanceOf(HTMLImageElement)) {
+				return;
+			}
+			const currentSrc = node.getAttribute("src");
+			const originalSrc =
+				node.getAttribute(ORIGINAL_SRC_ATTR) || currentSrc;
+			const fromPdfCrop = srcIsPdfCrop(originalSrc);
+
+			if (!isDark || !fromPdfCrop) {
+				this.restoreLightboxImgIfBaked(node);
+				node.classList.remove(PDF_DARK_CLASS);
+				return;
+			}
+
+			// Already baked: keep if cache still matches current appearance;
+			// otherwise restore original pixels and re-bake below.
+			if (node.hasAttribute(BAKED_ATTR) && originalSrc) {
+				const expected = this.bakeCache.get(
+					this.bakeCacheKey(originalSrc)
+				);
+				if (expected && node.getAttribute("src") === expected) {
+					node.classList.remove(PDF_DARK_CLASS);
+					return;
+				}
+				this.restoreLightboxImgIfBaked(node);
+			}
+
+			// Prefer pre-baked src from pointerdown (same original)
+			let baked: string | null = null;
+			if (
+				this.pendingBakedSrc &&
+				originalSrc &&
+				originalSrc === this.pendingCropSrc
+			) {
+				baked = this.pendingBakedSrc;
+			} else if (originalSrc) {
+				baked =
+					this.bakeCache.get(this.bakeCacheKey(originalSrc)) ?? null;
+			}
+			// Bake from the (restored) lightbox bitmap
+			if (!baked) {
+				baked = this.getBakedInvertedSrc(
+					node,
+					originalSrc || currentSrc || ""
+				);
+			}
+
+			if (baked && originalSrc) {
+				node.setAttribute(ORIGINAL_SRC_ATTR, originalSrc);
+				node.setAttribute(BAKED_ATTR, "1");
+				// Avoid re-setting the same src (decode / layout churn)
+				if (node.getAttribute("src") !== baked) {
+					node.setAttribute("src", baked);
+				}
+				node.classList.remove(PDF_DARK_CLASS);
+				return;
+			}
+
+			// Fallback: live CSS filter (can jank during zoom; rare)
+			node.classList.add(PDF_DARK_CLASS);
+		});
+	}
+
+	private restoreLightboxImgIfBaked(img: HTMLImageElement) {
+		const original = img.getAttribute(ORIGINAL_SRC_ATTR);
+		if (!original) {
+			img.removeAttribute(BAKED_ATTR);
+			return;
+		}
+		if (img.getAttribute("src") !== original) {
+			img.setAttribute("src", original);
+		}
+		img.removeAttribute(ORIGINAL_SRC_ATTR);
+		img.removeAttribute(BAKED_ATTR);
+	}
+
+	/**
+	 * Return a data URL with invert/hue/brightness baked in.
+	 * Uses the in-memory crop/lightbox bitmap (already decoded) — one-shot cost
+	 * on click, then the lightbox animates plain pixels.
+	 */
+	private getBakedInvertedSrc(
+		source: HTMLImageElement,
+		src: string
+	): string | null {
+		if (!src) {
+			return null;
+		}
+		const key = this.bakeCacheKey(src);
+		const cached = this.bakeCache.get(key);
+		if (cached) {
+			return cached;
+		}
+		const baked = this.bakeInvertedDataUrl(source);
+		if (baked) {
+			this.bakeCache.set(key, baked);
+		}
+		return baked;
+	}
+
+	private bakeCacheKey(src: string): string {
+		const invert = clamp(this.settings.conversionAmount, 0, 1);
+		const hue = clamp(this.settings.hueRotation, 0, 360);
+		const brightness = clampBrightness(this.settings.brightness);
+		// src is usually a data URL of the crop — unique per clip
+		return `${invert}|${hue}|${brightness}|${src}`;
+	}
+
+	private bakeInvertedDataUrl(source: HTMLImageElement): string | null {
+		try {
+			const w = source.naturalWidth || source.width;
+			const h = source.naturalHeight || source.height;
+			if (!w || !h) {
+				return null;
+			}
+			// Prefer the image's document (pop-out windows)
+			const doc = source.doc ?? document;
+			const canvas = doc.createElement("canvas");
+			canvas.width = w;
+			canvas.height = h;
+			const ctx = canvas.getContext("2d");
+			if (!ctx) {
+				return null;
+			}
+			const invert = clamp(this.settings.conversionAmount, 0, 1);
+			const hue = clamp(this.settings.hueRotation, 0, 360);
+			const brightness = clampBrightness(this.settings.brightness);
+			ctx.filter = `invert(${invert}) hue-rotate(${hue}deg) brightness(${brightness})`;
+			ctx.drawImage(source, 0, 0, w, h);
+			// PNG keeps sharp text from PDF crops; crop regions stay modest size
+			return canvas.toDataURL("image/png");
+		} catch {
+			// Tainted canvas / detached image / etc.
+			return null;
+		}
+	}
+
+	/** Unique img src values currently rendered inside PDF++ crop embeds. */
+	private collectPdfCropEmbedSrcs(): Set<string> {
+		const srcs = new Set<string>();
+		document
+			.querySelectorAll(".pdf-cropped-embed img")
+			.forEach((node) => {
+				if (!node.instanceOf(HTMLImageElement)) {
+					return;
+				}
+				const src = node.getAttribute("src");
+				if (src) {
+					srcs.add(src);
+				}
+			});
+		return srcs;
 	}
 
 	/**
@@ -684,6 +1064,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			input.value = String(snapped);
 			opts.setValue(snapped);
 			valueEl.setText(`${snapped}%`);
+			// Slider changes invert/hue/brightness → drop stale baked lightboxes
+			this.invalidateBakeCache();
 			this.applyAppearanceVars();
 			if (this.settings.isDark) {
 				this.setClassOnTargets(true);
@@ -915,11 +1297,16 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	/** Called from the settings tab after a control changes. */
 	async onAppearanceSettingChange() {
 		await this.saveSettings();
+		// Appearance affects canvas-baked lightbox pixels
+		this.invalidateBakeCache();
 		this.applyAppearanceVars();
 		this.applyLinkAnnotationStyle();
 		// Dark-mode class + vars for open PDFs; always refresh outlines above
 		if (this.settings.isDark) {
 			this.setClassOnTargets(true);
+		} else {
+			// Restore any baked lightbox imgs when leaving dark appearance
+			this.setClassOnLightboxPdfImgs(false);
 		}
 		this.syncAllToolbarControls();
 	}

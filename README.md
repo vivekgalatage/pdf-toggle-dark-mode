@@ -12,7 +12,7 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 - **Persistence** — mode and appearance settings are saved across restarts
 - **Adapt to theme** — optional setting so PDF dark/light follows Obsidian’s appearance (and system light/dark when Obsidian is set to adapt to system)
 - **Late PDF opens** — classes and toolbar controls re-apply when new PDF views mount
-- **PDF++ cropped embeds** *(optional — requires [PDF++](https://github.com/RyotaUshio/obsidian-pdf-plus) installed and enabled)* — rectangular clippings (`![[file.pdf#page=N&rect=…]]`, class `pdf-cropped-embed`) use the same dark/light mode and Darkness / Color / Brightness settings as full PDF viewers. Without PDF++, those embeds are not created, so this feature simply does nothing.
+- **PDF++ cropped embeds** *(optional — requires [PDF++](https://github.com/RyotaUshio/obsidian-pdf-plus) installed and enabled)* — rectangular clippings (`![[file.pdf#page=N&rect=…]]`, class `pdf-cropped-embed`) use the same dark/light mode and Darkness / Color / Brightness settings as full PDF viewers. Clicking a crop opens Obsidian’s media lightbox; that popup is inverted only when the image matches a PDF crop (other image lightboxes are left alone). Without PDF++, those embeds are not created, so this feature simply does nothing.
 
 ## Install (manual / development)
 
