@@ -133,6 +133,14 @@ interface PdfDarkModeSettings {
 	 * When false, their border/outline is suppressed.
 	 */
 	showLinkAnnotations: boolean;
+	/** Show the dark/light toggle in PDF toolbars. */
+	showToolbarToggle: boolean;
+	/** Show the appearance sliders in PDF toolbars. */
+	showToolbarSliders: boolean;
+	/** Show the dark/light toggle in the ribbon. */
+	showRibbonIcon: boolean;
+	/** Show the dark/light toggle in the status bar. */
+	showStatusBarItem: boolean;
 }
 
 const DEFAULT_SETTINGS: PdfDarkModeSettings = {
@@ -142,6 +150,10 @@ const DEFAULT_SETTINGS: PdfDarkModeSettings = {
 	hueRotation: 180,
 	brightness: 1,
 	showLinkAnnotations: true,
+	showToolbarToggle: true,
+	showToolbarSliders: true,
+	showRibbonIcon: true,
+	showStatusBarItem: true,
 };
 
 /** Friendly defaults for labels / reset tooltips (match DEFAULT_SETTINGS). */
@@ -270,6 +282,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				void this.toggleMode();
 			}
 		});
+		// Apply saved visibility after creating the ribbon and status bar
+		this.applyUiVisibility();
 
 		this.addCommand({
 			id: "toggle-pdf-dark-mode",
@@ -383,19 +397,19 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	}
 
 	/**
-	 * Debounce theme-driven mode sync so css-change + system media query
-	 * can settle after Obsidian applies `theme-dark` / `theme-light`.
+	 * Wait for Obsidian to update its UI before syncing visibility and theme mode.
 	 */
 	private scheduleThemeSync() {
-		if (!this.settings.adaptToTheme) {
-			return;
-		}
 		if (this.themeSyncTimer !== null) {
 			window.clearTimeout(this.themeSyncTimer);
 		}
 		this.themeSyncTimer = window.setTimeout(() => {
 			this.themeSyncTimer = null;
-			void this.syncModeFromTheme();
+			// Obsidian can show hidden items while rebuilding the ribbon
+			this.applyUiVisibility();
+			if (this.settings.adaptToTheme) {
+				void this.syncModeFromTheme();
+			}
 		}, 50);
 	}
 
@@ -930,29 +944,26 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	}
 
 	private mountToolbarControls(parent: HTMLElement) {
+		// Skip the spacer and root when both controls are hidden
+		if (
+			!this.settings.showToolbarToggle &&
+			!this.settings.showToolbarSliders
+		) {
+			return;
+		}
+
 		parent.createDiv({ cls: TOOLBAR_SPACER_CLS });
 		const root = parent.createDiv({ cls: TOOLBAR_ROOT_CLS });
 		this.toolbarRoots.add(root);
 
-		// Toggle button (sun / moon) — same pattern as other PDF toolbar icons
-		const toggleBtn = root.createDiv({
-			cls: "clickable-icon pdf-tdm-toggle",
-			attr: { role: "button", tabindex: "0" },
-		});
-		setIcon(toggleBtn, this.iconName());
-		setTooltip(toggleBtn, this.ribbonTooltip());
-		// Prefer registerDomEvent (auto-cleaned on unload) over addEventListener
-		this.registerDomEvent(toggleBtn, "click", (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			void this.toggleMode();
-		});
-		this.registerDomEvent(toggleBtn, "keydown", (e: KeyboardEvent) => {
-			if (e.key === "Enter" || e.key === " ") {
-				e.preventDefault();
-				void this.toggleMode();
-			}
-		});
+		if (this.settings.showToolbarToggle) {
+			this.createToolbarToggle(root);
+		}
+
+		// Avoid an empty sliders container
+		if (!this.settings.showToolbarSliders) {
+			return;
+		}
 
 		// Compact sliders (shown when dark mode is on)
 		const sliders = root.createDiv({ cls: "pdf-tdm-sliders" });
@@ -1000,6 +1011,28 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				this.settings.brightness = percentToBrightness(percent);
 			},
 			onReset: () => this.resetBrightnessToDefault(),
+		});
+	}
+
+	private createToolbarToggle(root: HTMLElement) {
+		// Sun/moon toggle, matching the other PDF toolbar icons
+		const toggleBtn = root.createDiv({
+			cls: "clickable-icon pdf-tdm-toggle",
+			attr: { role: "button", tabindex: "0" },
+		});
+		setIcon(toggleBtn, this.iconName());
+		setTooltip(toggleBtn, this.ribbonTooltip());
+		// Prefer registerDomEvent (auto-cleaned on unload) over addEventListener
+		this.registerDomEvent(toggleBtn, "click", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			void this.toggleMode();
+		});
+		this.registerDomEvent(toggleBtn, "keydown", (e: KeyboardEvent) => {
+			if (e.key === "Enter" || e.key === " ") {
+				e.preventDefault();
+				void this.toggleMode();
+			}
 		});
 	}
 
@@ -1111,6 +1144,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	 */
 	syncAllToolbarControls(exceptInput?: HTMLInputElement) {
 		const isDark = this.settings.isDark;
+		// Sliders are visible only in dark mode
+		const showSliders = isDark && this.settings.showToolbarSliders;
 		const darknessPct = darknessToPercent(this.settings.conversionAmount);
 		const colorPct = colorToPercent(this.settings.hueRotation);
 		const brightnessPct = brightnessToPercent(this.settings.brightness);
@@ -1135,10 +1170,10 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				const sliders =
 					root.querySelector<HTMLElement>(".pdf-tdm-sliders");
 				if (sliders) {
-					sliders.toggleClass("is-visible", isDark);
+					sliders.toggleClass("is-visible", showSliders);
 					sliders.setAttr(
 						"aria-hidden",
-						isDark ? "false" : "true"
+						showSliders ? "false" : "true"
 					);
 				}
 			}
@@ -1184,7 +1219,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		}
 	}
 
-	private removeAllToolbarControls() {
+	/** Remove toolbar controls and spacers before remounting or unloading. */
+	removeAllToolbarControls() {
 		for (const root of Array.from(this.toolbarRoots)) {
 			const prev = root.previousElementSibling;
 			if (
@@ -1201,6 +1237,16 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		document
 			.querySelectorAll(`.${TOOLBAR_ROOT_CLS}, .pdf-tdm-spacer`)
 			.forEach((el) => el.remove());
+	}
+
+	/** Show or hide the ribbon and status bar. */
+	applyUiVisibility() {
+		if (this.ribbonEl) {
+			this.ribbonEl.toggle(this.settings.showRibbonIcon);
+		}
+		if (this.statusBarEl) {
+			this.statusBarEl.toggle(this.settings.showStatusBarItem);
+		}
 	}
 
 	/** Refresh ribbon, status bar, and toolbar chrome for the current mode. */
@@ -1229,6 +1275,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			this.statusBarEl.setAttr("title", tooltip);
 		}
 
+		// Keep hidden controls hidden after updating their icons
+		this.applyUiVisibility();
 		this.syncAllToolbarControls();
 	}
 
@@ -1282,6 +1330,32 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		if (raw && typeof raw.showLinkAnnotations !== "boolean") {
 			this.settings.showLinkAnnotations =
 				DEFAULT_SETTINGS.showLinkAnnotations;
+		}
+		// Use defaults for missing or invalid values in old data.json files
+		this.settings.showToolbarToggle = Boolean(
+			this.settings.showToolbarToggle
+		);
+		if (raw && typeof raw.showToolbarToggle !== "boolean") {
+			this.settings.showToolbarToggle =
+				DEFAULT_SETTINGS.showToolbarToggle;
+		}
+		this.settings.showToolbarSliders = Boolean(
+			this.settings.showToolbarSliders
+		);
+		if (raw && typeof raw.showToolbarSliders !== "boolean") {
+			this.settings.showToolbarSliders =
+				DEFAULT_SETTINGS.showToolbarSliders;
+		}
+		this.settings.showRibbonIcon = Boolean(this.settings.showRibbonIcon);
+		if (raw && typeof raw.showRibbonIcon !== "boolean") {
+			this.settings.showRibbonIcon = DEFAULT_SETTINGS.showRibbonIcon;
+		}
+		this.settings.showStatusBarItem = Boolean(
+			this.settings.showStatusBarItem
+		);
+		if (raw && typeof raw.showStatusBarItem !== "boolean") {
+			this.settings.showStatusBarItem =
+				DEFAULT_SETTINGS.showStatusBarItem;
 		}
 		this.settings.adaptToTheme = Boolean(this.settings.adaptToTheme);
 		if (raw && typeof raw.adaptToTheme !== "boolean") {
@@ -1345,6 +1419,73 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
+			{
+				type: "group",
+				heading: "Interface",
+				items: [
+					{
+						name: "Show toolbar toggle",
+						desc: "Show the sun/moon button in each PDF toolbar. When hidden, use the Toggle PDF dark/light mode command; return to this settings tab to restore it.",
+						aliases: [
+							"toolbar button",
+							"sun moon",
+							"PDF toggle",
+							"toolbar icon",
+						],
+						control: {
+							type: "toggle",
+							key: "showToolbarToggle",
+							defaultValue: true,
+						},
+					},
+					{
+						name: "Show toolbar sliders",
+						desc: "Show the Darkness, Color correction, and Brightness controls with their reset buttons in each PDF toolbar while dark mode is on. The same appearance controls remain available in this settings tab when hidden.",
+						aliases: [
+							"toolbar sliders",
+							"darkness controls",
+							"color controls",
+							"brightness controls",
+							"reset buttons",
+						],
+						control: {
+							type: "toggle",
+							key: "showToolbarSliders",
+							defaultValue: true,
+						},
+					},
+					{
+						name: "Show ribbon icon",
+						desc: "Show the sun/moon icon in the left sidebar ribbon. When hidden, the Toggle PDF dark/light mode command remains available, and this settings tab can restore the icon.",
+						aliases: [
+							"sidebar icon",
+							"left ribbon",
+							"ribbon button",
+							"sun moon",
+						],
+						control: {
+							type: "toggle",
+							key: "showRibbonIcon",
+							defaultValue: true,
+						},
+					},
+					{
+						name: "Show status bar item",
+						desc: "Show the PDF: Light / PDF: Dark item in the status bar. When hidden, the Toggle PDF dark/light mode command remains available, and this settings tab can restore the item.",
+						aliases: [
+							"status bar",
+							"PDF status",
+							"bottom bar",
+							"mode label",
+						],
+						control: {
+							type: "toggle",
+							key: "showStatusBarItem",
+							defaultValue: true,
+						},
+					},
+				],
+			},
 			{
 				type: "group",
 				heading: "PDF appearance",
@@ -1517,6 +1658,37 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 		if (key === "brightnessPercent") {
 			this.plugin.settings.brightness = percentToBrightness(Number(value));
 			await this.plugin.onAppearanceSettingChange();
+			return;
+		}
+		// These settings do not affect PDF rendering
+		if (key === "showToolbarToggle") {
+			this.plugin.settings.showToolbarToggle = Boolean(value);
+			await this.plugin.saveSettings();
+			this.plugin.applyUiVisibility();
+			// Rebuild the toolbar to apply the setting
+			this.plugin.removeAllToolbarControls();
+			this.plugin.injectToolbarControls();
+			return;
+		}
+		if (key === "showToolbarSliders") {
+			this.plugin.settings.showToolbarSliders = Boolean(value);
+			await this.plugin.saveSettings();
+			this.plugin.applyUiVisibility();
+			// Rebuild the toolbar to apply the setting
+			this.plugin.removeAllToolbarControls();
+			this.plugin.injectToolbarControls();
+			return;
+		}
+		if (key === "showRibbonIcon") {
+			this.plugin.settings.showRibbonIcon = Boolean(value);
+			await this.plugin.saveSettings();
+			this.plugin.applyUiVisibility();
+			return;
+		}
+		if (key === "showStatusBarItem") {
+			this.plugin.settings.showStatusBarItem = Boolean(value);
+			await this.plugin.saveSettings();
+			this.plugin.applyUiVisibility();
 			return;
 		}
 		if (key === "adaptToTheme") {

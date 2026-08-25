@@ -4,12 +4,12 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 
 ## Features
 
-- **PDF toolbar controls** — dark/light toggle plus **Darkness**, **Color correction**, and **Brightness** sliders, mounted on the native PDF toolbar (same idea as PDF++’s color palette)
-- **Ribbon icon** — sun (light) / moon (dark), with tooltip for the current mode
-- **Status bar item** — same toggle plus `PDF: Light` / `PDF: Dark` label
+- **PDF toolbar controls** — independently configurable dark/light toggle and **Darkness**, **Color correction**, and **Brightness** sliders, mounted on the native PDF toolbar (same idea as PDF++’s color palette)
+- **Ribbon icon** — optional sun (light) / moon (dark) toggle, with tooltip for the current mode
+- **Status bar item** — optional toggle with a `PDF: Light` / `PDF: Dark` label
 - **Command** — *Toggle PDF dark/light mode* (bind a hotkey if you like)
-- **Settings** — same appearance options (also available from Settings → PDF Toggle Dark Mode)
-- **Persistence** — mode and appearance settings are saved across restarts
+- **Settings** — appearance options and independent visibility controls for each interface surface (available from Settings → PDF Toggle Dark Mode)
+- **Persistence** — mode, appearance, and interface settings are saved across restarts
 - **Adapt to theme** — optional setting so PDF dark/light follows Obsidian’s appearance (and system light/dark when Obsidian is set to adapt to system)
 - **Late PDF opens** — classes and toolbar controls re-apply when new PDF views mount
 - **PDF++ cropped embeds** *(optional — requires [PDF++](https://github.com/RyotaUshio/obsidian-pdf-plus) installed and enabled)* — rectangular clippings (`![[file.pdf#page=N&rect=…]]`, class `pdf-cropped-embed`) use the same dark/light mode and Darkness / Color / Brightness settings as full PDF viewers. Clicking a crop opens Obsidian’s media lightbox; that popup is inverted only when the image matches a PDF crop (other image lightboxes are left alone). Without PDF++, those embeds are not created, so this feature simply does nothing.
@@ -35,19 +35,23 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 
 ## Usage
 
-Open a PDF. On the PDF viewer toolbar you’ll see:
+Open a PDF. Depending on the **Interface** settings, the PDF viewer toolbar can show:
 
 1. **Sun / moon button** — toggle light ↔ dark for PDFs  
 2. **Dark** slider — darkness (only while dark mode is on)  
 3. **Color** slider — color correction (only while dark mode is on)  
 4. **Bright** slider — brightness (only while dark mode is on; 20–200%)
 
-You can also use the ribbon icon, status bar item, or the *Toggle PDF dark/light mode* command.
+You can also use the ribbon icon or status bar item when enabled. The *Toggle PDF dark/light mode* command is always available.
 
 Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 
 | Setting | What it does | Default |
 |--------|----------------|---------|
+| **Show toolbar toggle** | Show/hide the sun/moon button on PDF toolbars | On |
+| **Show toolbar sliders** | Show/hide Darkness, Color correction, and Brightness controls and their reset buttons on PDF toolbars | On |
+| **Show ribbon icon** | Show/hide the sun/moon toggle in the left sidebar ribbon | On |
+| **Show status bar item** | Show/hide the `PDF: Light` / `PDF: Dark` status bar toggle | On |
 | **Adapt to theme** | PDF dark/light follows Obsidian (and system if Obsidian adapts to system). Manual toggles still work; the next theme change re-syncs. | Off |
 | **Darkness** | How strongly light pages turn dark | 90% |
 | **Color correction** | Makes charts/photos look natural after darkening | 50% (recommended) |
@@ -55,6 +59,8 @@ Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 | **Show link outlines** | Show/hide the outline boxes around clickable PDF links | On |
 
 Each slider has its own **Reset** control (toolbar: small rotate icon; Settings: *Reset darkness* / *Reset color correction* / *Reset brightness*). **Reset appearance** restores all three plus link outlines. Settings are searchable from Obsidian’s global settings search. Toolbar sliders and Settings stay in sync.
+
+All four interface surfaces can be hidden at once. The *Toggle PDF dark/light mode* command remains available, and the settings tab remains available to restore any surface.
 
 ## Develop
 
