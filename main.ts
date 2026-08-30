@@ -163,6 +163,12 @@ interface PdfDarkModeSettings {
 	 * The ring is a darker mix of this color (not a separate setting).
 	 */
 	findHighlightColor: string;
+	/**
+	 * When true, dark/light mode toggle button and appearance controls are
+	 * injected into the native PDF viewer toolbar.
+	 * When false, toolbar controls are hidden.
+	 */
+	showToolbarButtons: boolean;
 }
 
 const DEFAULT_SETTINGS: PdfDarkModeSettings = {
@@ -173,6 +179,7 @@ const DEFAULT_SETTINGS: PdfDarkModeSettings = {
 	brightness: 1,
 	showLinkAnnotations: true,
 	findHighlightColor: "#ffc400",
+	showToolbarButtons: true,
 };
 
 /** Friendly defaults for labels / reset tooltips (match DEFAULT_SETTINGS). */
@@ -975,6 +982,11 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	 * toolbar (PDF++-style: spacer + control group on the left section).
 	 */
 	injectToolbarControls() {
+		if (!this.settings.showToolbarButtons) {
+			this.removeAllToolbarControls();
+			return;
+		}
+
 		// Drop references to nodes that were removed from the document
 		for (const root of Array.from(this.toolbarRoots)) {
 			if (!root.isConnected) {
@@ -1418,7 +1430,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		}
 	}
 
-	private removeAllToolbarControls() {
+	removeAllToolbarControls() {
 		for (const root of Array.from(this.toolbarRoots)) {
 			const prev = root.previousElementSibling;
 			if (
@@ -1521,6 +1533,13 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		if (raw && typeof raw.adaptToTheme !== "boolean") {
 			this.settings.adaptToTheme = DEFAULT_SETTINGS.adaptToTheme;
 		}
+		this.settings.showToolbarButtons = Boolean(
+			this.settings.showToolbarButtons
+		);
+		if (raw && typeof raw.showToolbarButtons !== "boolean") {
+			this.settings.showToolbarButtons =
+				DEFAULT_SETTINGS.showToolbarButtons;
+		}
 		this.settings.findHighlightColor = normalizeHexColor(
 			this.settings.findHighlightColor,
 			DEFAULT_SETTINGS.findHighlightColor
@@ -1617,6 +1636,23 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 							type: "toggle",
 							key: "adaptToTheme",
 							defaultValue: false,
+						},
+					},
+					{
+						name: "Show toolbar buttons",
+						desc: "Show the dark/light mode toggle and appearance controls in the PDF viewer toolbar. Turn off to hide them if you prefer using ribbon icons, status bar, or commands.",
+						aliases: [
+							"toolbar buttons",
+							"toolbar controls",
+							"pdf toolbar",
+							"toolbar toggle",
+							"hide toolbar buttons",
+							"show toolbar",
+						],
+						control: {
+							type: "toggle",
+							key: "showToolbarButtons",
+							defaultValue: true,
 						},
 					},
 					{
@@ -1798,6 +1834,16 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 				await this.plugin.syncModeFromTheme();
 			}
 			this.plugin.updateUi();
+			return;
+		}
+		if (key === "showToolbarButtons") {
+			this.plugin.settings.showToolbarButtons = Boolean(value);
+			await this.plugin.saveSettings();
+			if (this.plugin.settings.showToolbarButtons) {
+				this.plugin.injectToolbarControls();
+			} else {
+				this.plugin.removeAllToolbarControls();
+			}
 			return;
 		}
 		if (key === "findHighlightColor") {

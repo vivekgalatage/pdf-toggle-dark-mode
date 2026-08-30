@@ -4,7 +4,7 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 
 ## Features
 
-- **PDF toolbar controls** — dark/light toggle plus **Darkness**, **Color correction**, and **Brightness** sliders and a **Find** color swatch, mounted on the native PDF toolbar (same idea as PDF++’s color palette)
+- **PDF toolbar controls** — dark/light toggle plus **Darkness**, **Color correction**, and **Brightness** sliders and a **Find** color swatch, mounted on the native PDF toolbar (can be toggled on/off in settings)
 - **Ribbon icon** — sun (light) / moon (dark), with tooltip for the current mode
 - **Status bar item** — same toggle plus `PDF: Light` / `PDF: Dark` label
 - **Command** — *Toggle PDF dark/light mode* (bind a hotkey if you like)
@@ -51,6 +51,7 @@ Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 | Setting | What it does | Default |
 |--------|----------------|---------|
 | **Adapt to theme** | PDF dark/light follows Obsidian (and system if Obsidian adapts to system). Manual toggles still work; the next theme change re-syncs. | Off |
+| **Show toolbar buttons** | Show/hide the dark/light mode toggle and appearance controls in the PDF viewer toolbar | On |
 | **Darkness** | How strongly light pages turn dark | 90% |
 | **Color correction** | Makes charts/photos look natural after darkening | 50% (recommended) |
 | **Brightness** | CSS `brightness()` after darkening (min 20%, max 200%) | 100% |
