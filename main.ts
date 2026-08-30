@@ -240,6 +240,20 @@ function percentToColor(percent: number): number {
 	return (snapPercent(percent, 0, 100) / 100) * 360;
 }
 
+interface PdfSearchSettingsRecord {
+	highlightAll?: boolean;
+}
+
+function isPdfSearchSettingsRecord(
+	value: unknown
+): value is PdfSearchSettingsRecord {
+	return typeof value === "object" && value !== null;
+}
+
+function parseUnknownJson(text: string): unknown {
+	return JSON.parse(text) as unknown;
+}
+
 /**
  * Normalize a color picker / data.json value to `#rrggbb`.
  * Accepts `#rgb`, `#rrggbb`, and the same without `#`.
@@ -999,21 +1013,21 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 
 	private clearStoredPdfHighlightAll() {
 		try {
-			const raw = this.app.loadLocalStorage(PDFJS_SEARCH_SETTINGS_KEY);
+			const raw: unknown = this.app.loadLocalStorage(
+				PDFJS_SEARCH_SETTINGS_KEY
+			) as unknown;
 			if (raw == null) {
 				return;
 			}
 			const parsed: unknown =
-				typeof raw === "string" ? JSON.parse(raw) : raw;
+				typeof raw === "string" ? parseUnknownJson(raw) : raw;
 			if (
-				!parsed ||
-				typeof parsed !== "object" ||
-				!("highlightAll" in parsed) ||
-				(parsed as { highlightAll?: boolean }).highlightAll !== true
+				!isPdfSearchSettingsRecord(parsed) ||
+				parsed.highlightAll !== true
 			) {
 				return;
 			}
-			(parsed as { highlightAll: boolean }).highlightAll = false;
+			parsed.highlightAll = false;
 			this.app.saveLocalStorage(
 				PDFJS_SEARCH_SETTINGS_KEY,
 				JSON.stringify(parsed)
