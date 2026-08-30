@@ -4,7 +4,7 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 
 ## Features
 
-- **PDF toolbar controls** — dark/light toggle plus **Darkness**, **Color correction**, and **Brightness** sliders, mounted on the native PDF toolbar (same idea as PDF++’s color palette)
+- **PDF toolbar controls** — dark/light toggle plus **Darkness**, **Color correction**, and **Brightness** sliders and a **Find** color swatch, mounted on the native PDF toolbar (same idea as PDF++’s color palette)
 - **Ribbon icon** — sun (light) / moon (dark), with tooltip for the current mode
 - **Status bar item** — same toggle plus `PDF: Light` / `PDF: Dark` label
 - **Command** — *Toggle PDF dark/light mode* (bind a hotkey if you like)
@@ -12,6 +12,7 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 - **Persistence** — mode and appearance settings are saved across restarts
 - **Adapt to theme** — optional setting so PDF dark/light follows Obsidian’s appearance (and system light/dark when Obsidian is set to adapt to system)
 - **Late PDF opens** — classes and toolbar controls re-apply when new PDF views mount
+- **Find-in-file highlights** — in dark mode, only the current PDF Find match is painted (same as Obsidian without the plugin). Fill is translucent so text stays readable; the ring is a darker shade of the same color. Change it from the toolbar swatch or Settings.
 - **PDF++ cropped embeds** *(optional — requires [PDF++](https://github.com/RyotaUshio/obsidian-pdf-plus) installed and enabled)* — rectangular clippings (`![[file.pdf#page=N&rect=…]]`, class `pdf-cropped-embed`) use the same dark/light mode and Darkness / Color / Brightness settings as full PDF viewers. Clicking a crop opens Obsidian’s media lightbox; that popup is inverted only when the image matches a PDF crop (other image lightboxes are left alone). Without PDF++, those embeds are not created, so this feature simply does nothing.
 
 ## Install (manual / development)
@@ -40,7 +41,8 @@ Open a PDF. On the PDF viewer toolbar you’ll see:
 1. **Sun / moon button** — toggle light ↔ dark for PDFs  
 2. **Dark** slider — darkness (only while dark mode is on)  
 3. **Color** slider — color correction (only while dark mode is on)  
-4. **Bright** slider — brightness (only while dark mode is on; 20–200%)
+4. **Bright** slider — brightness (only while dark mode is on; 20–200%)  
+5. **Find** color swatch — current Find match color (only while dark mode is on; the ring is a darker shade of this color)
 
 You can also use the ribbon icon, status bar item, or the *Toggle PDF dark/light mode* command.
 
@@ -53,8 +55,9 @@ Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 | **Color correction** | Makes charts/photos look natural after darkening | 50% (recommended) |
 | **Brightness** | CSS `brightness()` after darkening (min 20%, max 200%) | 100% |
 | **Show link outlines** | Show/hide the outline boxes around clickable PDF links | On |
+| **Find highlight** | Color of the current PDF Find match in dark mode. The ring is a darker shade of this color. | `#ffc400` |
 
-Each slider has its own **Reset** control (toolbar: small rotate icon; Settings: *Reset darkness* / *Reset color correction* / *Reset brightness*). **Reset appearance** restores all three plus link outlines. Settings are searchable from Obsidian’s global settings search. Toolbar sliders and Settings stay in sync.
+Each slider has its own **Reset** control (toolbar: small rotate icon; Settings: *Reset darkness* / *Reset color correction* / *Reset brightness*). The Find swatch has a reset too. **Reset appearance** restores all three sliders plus link outlines and Find highlight. Settings are searchable from Obsidian’s global settings search. Toolbar controls and Settings stay in sync.
 
 ## Develop
 

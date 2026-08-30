@@ -49,6 +49,11 @@ const ORIGINAL_SRC_ATTR = "data-pdf-tdm-original-src";
 const CSS_VAR_INVERT = "--pdf-tdm-invert";
 const CSS_VAR_HUE = "--pdf-tdm-hue";
 const CSS_VAR_BRIGHTNESS = "--pdf-tdm-brightness";
+const CSS_VAR_FIND_HIGHLIGHT = "--pdf-tdm-find-highlight";
+
+/** 6-digit hex, optional leading `#`. */
+const HEX_COLOR_RE = /^#?([0-9a-fA-F]{6})$/;
+const HEX_COLOR_SHORT_RE = /^#?([0-9a-fA-F]{3})$/;
 
 /**
  * CSS filter brightness() multiplier bounds.
@@ -105,6 +110,26 @@ const HIDE_OUTLINE_PROP_KEYS = Object.keys(HIDE_OUTLINE_PROPS);
 
 type OutlineStyleBackup = Record<string, string>;
 
+/** Obsidian key for PDF Find options (`highlightAll`, case, etc.). */
+const PDFJS_SEARCH_SETTINGS_KEY = "pdfjs-search-settings";
+
+/**
+ * Undocumented Obsidian PDF find-bar (`view.viewer.child.findBar`).
+ * Used only to undo a previous plugin version that turned Highlight all on.
+ */
+interface PdfFindBarLike {
+	searchSettings?: { highlightAll?: boolean };
+	saveSettings?: () => void;
+	dispatchEvent?: (type: string) => void;
+}
+
+interface PdfLeafViewLike {
+	viewer?: {
+		child?: { findBar?: PdfFindBarLike };
+		then?: (cb: (child: { findBar?: PdfFindBarLike }) => void) => void;
+	};
+}
+
 interface PdfDarkModeSettings {
 	isDark: boolean;
 	/**
@@ -133,6 +158,11 @@ interface PdfDarkModeSettings {
 	 * When false, their border/outline is suppressed.
 	 */
 	showLinkAnnotations: boolean;
+	/**
+	 * PDF.js current Find match fill, as shown on darkened pages.
+	 * The ring is a darker mix of this color (not a separate setting).
+	 */
+	findHighlightColor: string;
 }
 
 const DEFAULT_SETTINGS: PdfDarkModeSettings = {
@@ -142,6 +172,7 @@ const DEFAULT_SETTINGS: PdfDarkModeSettings = {
 	hueRotation: 180,
 	brightness: 1,
 	showLinkAnnotations: true,
+	findHighlightColor: "#ffc400",
 };
 
 /** Friendly defaults for labels / reset tooltips (match DEFAULT_SETTINGS). */
@@ -209,6 +240,27 @@ function percentToColor(percent: number): number {
 	return (snapPercent(percent, 0, 100) / 100) * 360;
 }
 
+/**
+ * Normalize a color picker / data.json value to `#rrggbb`.
+ * Accepts `#rgb`, `#rrggbb`, and the same without `#`.
+ */
+function normalizeHexColor(value: unknown, fallback: string): string {
+	if (typeof value !== "string") {
+		return fallback;
+	}
+	const trimmed = value.trim();
+	const full = HEX_COLOR_RE.exec(trimmed);
+	if (full) {
+		return `#${full[1].toLowerCase()}`;
+	}
+	const short = HEX_COLOR_SHORT_RE.exec(trimmed);
+	if (short) {
+		const [r, g, b] = short[1];
+		return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+	}
+	return fallback;
+}
+
 export default class PdfToggleDarkModePlugin extends Plugin {
 	settings: PdfDarkModeSettings = { ...DEFAULT_SETTINGS };
 
@@ -239,9 +291,12 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	private outlineStyleBackup = new WeakMap<HTMLElement, OutlineStyleBackup>();
 	/** Live toolbar control roots we mounted (for sync + cleanup). */
 	private toolbarRoots = new Set<HTMLElement>();
+	/** Find-bars we already restored Highlight all=off on (once per instance). */
+	private restoredFindBars = new WeakSet<object>();
 
 	async onload() {
 		await this.loadSettings();
+		this.restoreObsidianFindHighlightAllOff();
 
 		// Match Obsidian theme before first paint of PDF controls when enabled
 		if (this.settings.adaptToTheme) {
@@ -611,7 +666,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		this.syncAllToolbarControls();
 	}
 
-	/** Push user-facing darkness / color / brightness settings into CSS variables. */
+	/** Push darkness / color / brightness / Find highlight settings into CSS variables. */
 	applyAppearanceVars() {
 		const invert = clamp(this.settings.conversionAmount, 0, 1);
 		const hue = clamp(this.settings.hueRotation, 0, 360);
@@ -621,6 +676,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			[CSS_VAR_INVERT]: String(invert),
 			[CSS_VAR_HUE]: `${hue}deg`,
 			[CSS_VAR_BRIGHTNESS]: String(brightness),
+			[CSS_VAR_FIND_HIGHLIGHT]: this.settings.findHighlightColor,
 		});
 	}
 
@@ -630,6 +686,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			[CSS_VAR_INVERT]: "",
 			[CSS_VAR_HUE]: "",
 			[CSS_VAR_BRIGHTNESS]: "",
+			[CSS_VAR_FIND_HIGHLIGHT]: "",
 		});
 	}
 
@@ -927,6 +984,70 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		});
 
 		this.syncAllToolbarControls();
+		this.restoreObsidianFindHighlightAllOff();
+	}
+
+	/**
+	 * A previous version turned Obsidian’s PDF “Highlight all” on and saved it.
+	 * That paints every match as an opaque overlay; on an inverted page those
+	 * reads as redaction bars. Restore the Obsidian default (off).
+	 */
+	private restoreObsidianFindHighlightAllOff() {
+		this.clearStoredPdfHighlightAll();
+		this.clearLivePdfHighlightAll();
+	}
+
+	private clearStoredPdfHighlightAll() {
+		try {
+			const raw = this.app.loadLocalStorage(PDFJS_SEARCH_SETTINGS_KEY);
+			if (raw == null) {
+				return;
+			}
+			const parsed: unknown =
+				typeof raw === "string" ? JSON.parse(raw) : raw;
+			if (
+				!parsed ||
+				typeof parsed !== "object" ||
+				!("highlightAll" in parsed) ||
+				(parsed as { highlightAll?: boolean }).highlightAll !== true
+			) {
+				return;
+			}
+			(parsed as { highlightAll: boolean }).highlightAll = false;
+			this.app.saveLocalStorage(
+				PDFJS_SEARCH_SETTINGS_KEY,
+				JSON.stringify(parsed)
+			);
+		} catch {
+			// Corrupt or unexpected localStorage — leave Find settings alone.
+		}
+	}
+
+	private clearLivePdfHighlightAll() {
+		const restore = (findBar: PdfFindBarLike | undefined) => {
+			if (!findBar || this.restoredFindBars.has(findBar)) {
+				return;
+			}
+			this.restoredFindBars.add(findBar);
+			if (!findBar.searchSettings?.highlightAll) {
+				return;
+			}
+			findBar.searchSettings.highlightAll = false;
+			findBar.saveSettings?.();
+			findBar.dispatchEvent?.("highlightallchange");
+		};
+
+		for (const leaf of this.app.workspace.getLeavesOfType("pdf")) {
+			const viewer = (leaf.view as PdfLeafViewLike).viewer;
+			if (!viewer) {
+				continue;
+			}
+			if (viewer.child?.findBar) {
+				restore(viewer.child.findBar);
+			} else if (typeof viewer.then === "function") {
+				viewer.then((child) => restore(child.findBar));
+			}
+		}
 	}
 
 	private mountToolbarControls(parent: HTMLElement) {
@@ -1000,6 +1121,98 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				this.settings.brightness = percentToBrightness(percent);
 			},
 			onReset: () => this.resetBrightnessToDefault(),
+		});
+
+		this.createToolbarFindColorGroup(sliders);
+	}
+
+	/**
+	 * Compact Find highlight swatch (dark mode only).
+	 * Native `input type=color` so the OS picker opens from the toolbar.
+	 */
+	private createToolbarFindColorGroup(parent: HTMLElement) {
+		const group = parent.createDiv({
+			cls: "pdf-tdm-slider-group pdf-tdm-find-colors",
+		});
+		group.createSpan({
+			cls: "pdf-tdm-slider-label",
+			text: "Find",
+		});
+
+		this.createToolbarColorInput(group, {
+			key: "find",
+			ariaLabel: "Find highlight color",
+			title: "Find highlight — color of the current match",
+			getValue: () => this.settings.findHighlightColor,
+			setValue: (hex) => {
+				this.settings.findHighlightColor = hex;
+			},
+			defaultValue: DEFAULT_SETTINGS.findHighlightColor,
+		});
+
+		const resetBtn = group.createDiv({
+			cls: "clickable-icon pdf-tdm-slider-reset",
+			attr: {
+				role: "button",
+				tabindex: "0",
+				"aria-label": "Reset Find highlight color to default",
+			},
+		});
+		setIcon(resetBtn, "rotate-ccw");
+		setTooltip(
+			resetBtn,
+			`Reset Find highlight to default (${DEFAULT_SETTINGS.findHighlightColor})`
+		);
+
+		const doReset = (e: Event) => {
+			e.preventDefault();
+			e.stopPropagation();
+			void this.resetFindHighlightToDefault();
+		};
+		this.registerDomEvent(resetBtn, "click", doReset);
+		this.registerDomEvent(resetBtn, "keydown", (e: KeyboardEvent) => {
+			if (e.key === "Enter" || e.key === " ") {
+				doReset(e);
+			}
+		});
+	}
+
+	private createToolbarColorInput(
+		parent: HTMLElement,
+		opts: {
+			key: string;
+			ariaLabel: string;
+			title: string;
+			getValue: () => string;
+			setValue: (hex: string) => void;
+			defaultValue: string;
+		}
+	) {
+		const input = parent.createEl("input", {
+			cls: `pdf-tdm-color-input pdf-tdm-color-input-${opts.key}`,
+			attr: {
+				type: "color",
+				"aria-label": opts.ariaLabel,
+			},
+		});
+		input.value = opts.getValue();
+		setTooltip(input, opts.title);
+
+		const applyColor = () => {
+			const hex = normalizeHexColor(input.value, opts.defaultValue);
+			input.value = hex;
+			opts.setValue(hex);
+			this.applyAppearanceVars();
+			this.syncAllToolbarControls(input);
+		};
+
+		this.registerDomEvent(input, "input", () => {
+			applyColor();
+			this.scheduleSaveSettings();
+		});
+		this.registerDomEvent(input, "change", () => {
+			applyColor();
+			this.scheduleSaveSettings();
 		});
 	}
 
@@ -1181,6 +1394,13 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			if (brightnessVal) {
 				brightnessVal.setText(`${brightnessPct}%`);
 			}
+
+			const findInput = root.querySelector<HTMLInputElement>(
+				".pdf-tdm-color-input-find"
+			);
+			if (findInput && findInput !== exceptInput) {
+				findInput.value = this.settings.findHighlightColor;
+			}
 		}
 	}
 
@@ -1287,6 +1507,16 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		if (raw && typeof raw.adaptToTheme !== "boolean") {
 			this.settings.adaptToTheme = DEFAULT_SETTINGS.adaptToTheme;
 		}
+		this.settings.findHighlightColor = normalizeHexColor(
+			this.settings.findHighlightColor,
+			DEFAULT_SETTINGS.findHighlightColor
+		);
+		// Drop the old all-matches / current-match split if it is still on disk.
+		delete (
+			this.settings as PdfDarkModeSettings & {
+				findHighlightSelectedColor?: string;
+			}
+		).findHighlightSelectedColor;
 	}
 
 	async saveSettings() {
@@ -1325,6 +1555,12 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 	/** Restore Brightness slider only. */
 	async resetBrightnessToDefault() {
 		this.settings.brightness = DEFAULT_SETTINGS.brightness;
+		await this.onAppearanceSettingChange();
+	}
+
+	/** Restore Find highlight color. */
+	async resetFindHighlightToDefault() {
+		this.settings.findHighlightColor = DEFAULT_SETTINGS.findHighlightColor;
 		await this.onAppearanceSettingChange();
 	}
 }
@@ -1464,8 +1700,25 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 						},
 					},
 					{
+						name: "Find highlight",
+						desc: "Color of the current PDF Find match (Ctrl/Cmd+F) when dark mode is on. The ring is a darker shade of this color. The default light-purple PDF.js mark is almost invisible on darkened pages.",
+						aliases: [
+							"search highlight",
+							"find in file",
+							"find color",
+							"match color",
+							"pdf find",
+							"current match",
+						],
+						control: {
+							type: "color",
+							key: "findHighlightColor",
+							defaultValue: DEFAULT_SETTINGS.findHighlightColor,
+						},
+					},
+					{
 						name: "Reset appearance",
-						desc: "Restore Darkness, Color correction, Brightness, and Show link outlines to the recommended defaults.",
+						desc: "Restore Darkness, Color correction, Brightness, Show link outlines, and Find highlight to the recommended defaults.",
 						action: () => {
 							this.plugin.settings.conversionAmount =
 								DEFAULT_SETTINGS.conversionAmount;
@@ -1475,6 +1728,8 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 								DEFAULT_SETTINGS.brightness;
 							this.plugin.settings.showLinkAnnotations =
 								DEFAULT_SETTINGS.showLinkAnnotations;
+							this.plugin.settings.findHighlightColor =
+								DEFAULT_SETTINGS.findHighlightColor;
 							void this.plugin.onAppearanceSettingChange().then(() => {
 								this.update();
 							});
@@ -1497,6 +1752,9 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 		}
 		if (key === "brightnessPercent") {
 			return brightnessToPercent(this.plugin.settings.brightness);
+		}
+		if (key === "findHighlightColor") {
+			return this.plugin.settings.findHighlightColor;
 		}
 		return super.getControlValue(key);
 	}
@@ -1526,6 +1784,14 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 				await this.plugin.syncModeFromTheme();
 			}
 			this.plugin.updateUi();
+			return;
+		}
+		if (key === "findHighlightColor") {
+			this.plugin.settings.findHighlightColor = normalizeHexColor(
+				value,
+				DEFAULT_SETTINGS.findHighlightColor
+			);
+			await this.plugin.onAppearanceSettingChange();
 			return;
 		}
 		await super.setControlValue(key, value);

@@ -1,14 +1,67 @@
 /* Applied when PDF dark mode is active.
    Values come from plugin settings via CSS variables on body:
-   --pdf-tdm-invert      (0–1, conversion amount / darkness)
-   --pdf-tdm-hue         (e.g. 180deg, color correction)
-   --pdf-tdm-brightness  (0.2–2, brightness; min 20%, max 200%)
+   --pdf-tdm-invert                    (0–1, conversion amount / darkness)
+   --pdf-tdm-hue                       (e.g. 180deg, color correction)
+   --pdf-tdm-brightness                (0.2–2, brightness; min 20%, max 200%)
+   --pdf-tdm-find-highlight            (current Find match fill; ring is a darker mix)
 */
 
-.pdfViewer.pdf-dark-mode {
+/*
+ * Invert painted page layers, not .textLayer.
+ * PDF.js Find marks live in the text layer and default to light purple at
+ * ~25% opacity; filtering the whole .pdfViewer turns that into a dark
+ * smudge. Leaving the text layer unfiltered lets Find use a real dark-mode
+ * color instead.
+ */
+.pdfViewer.pdf-dark-mode .canvasWrapper,
+.pdfViewer.pdf-dark-mode .annotationLayer,
+.pdfViewer.pdf-dark-mode .xfaLayer,
+.pdfViewer.pdf-dark-mode .annotationEditorLayer {
 	filter: invert(var(--pdf-tdm-invert, 1))
 		hue-rotate(var(--pdf-tdm-hue, 180deg))
 		brightness(var(--pdf-tdm-brightness, 1));
+}
+
+/* .page is white in PDF.js; without a viewer-level invert it would flash. */
+.pdfViewer.pdf-dark-mode .page {
+	background-color: color-mix(
+		in srgb,
+		#fff calc((1 - var(--pdf-tdm-invert, 1)) * 100%),
+		#000
+	);
+}
+
+/* Older PDF.js sets .textLayer { opacity: 0.25 }, which would fade matches. */
+.pdfViewer.pdf-dark-mode .textLayer {
+	opacity: 1;
+}
+
+/*
+ * Extra Find marks (Highlight all) use an opaque yellow fill. On an inverted
+ * page that covers the canvas glyphs — a redaction bar. Don’t paint them.
+ */
+.pdf-container .pdfViewer.pdf-dark-mode .textLayer .highlight:not(.selected),
+.pdfViewer.pdf-dark-mode .textLayer .highlight:not(.selected) {
+	--highlight-bg-color: transparent;
+	background-color: transparent;
+	box-shadow: none;
+}
+
+/*
+ * Current match only. Translucent fill so inverted glyphs stay readable;
+ * ring is a darker mix of the same color (not a separate setting).
+ * Specificity beats `.pdf-container .textLayer .highlight.selected`.
+ */
+.pdf-container .pdfViewer.pdf-dark-mode .textLayer .highlight.selected,
+.pdfViewer.pdf-dark-mode .textLayer .highlight.selected {
+	--highlight-selected-bg-color: color-mix(
+		in srgb,
+		var(--pdf-tdm-find-highlight, #ffc400) 40%,
+		transparent
+	);
+	background-color: var(--highlight-selected-bg-color);
+	box-shadow: 0 0 0 2px
+		color-mix(in srgb, var(--pdf-tdm-find-highlight, #ffc400) 70%, #000);
 }
 
 .pdf-sidebar-container img.thumbnailImage.pdf-dark-mode {
@@ -97,7 +150,7 @@ body.pdf-tdm-hide-link-annotations .pdfViewer .annotationLayer a {
 
 /*
  * PDF toolbar controls (PDF++-style mount on toolbar left).
- * Layout: [spacer] [toggle] [Dark slider] [Color slider]
+ * Layout: [spacer] [toggle] [Dark] [Color] [Bright] [Find swatch]
  */
 .pdf-tdm-toolbar {
 	user-select: none;
@@ -185,6 +238,36 @@ body.pdf-tdm-hide-link-annotations .pdfViewer .annotationLayer a {
 	padding: 0;
 	height: var(--size-4-2, 8px);
 	cursor: pointer;
+}
+
+/* Native color swatches — sized like the 16px slider-reset icons */
+.pdf-tdm-toolbar .pdf-tdm-color-input {
+	-webkit-appearance: none;
+	appearance: none;
+	box-sizing: border-box;
+	width: var(--size-4-4, 16px);
+	height: var(--size-4-4, 16px);
+	margin: 0;
+	padding: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s, 4px);
+	background: transparent;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+.pdf-tdm-toolbar .pdf-tdm-color-input::-webkit-color-swatch-wrapper {
+	padding: 0;
+}
+
+.pdf-tdm-toolbar .pdf-tdm-color-input::-webkit-color-swatch {
+	border: none;
+	border-radius: calc(var(--radius-s, 4px) - 1px);
+}
+
+.pdf-tdm-toolbar .pdf-tdm-color-input::-moz-color-swatch {
+	border: none;
+	border-radius: calc(var(--radius-s, 4px) - 1px);
 }
 
 /* Narrow toolbars / phone: hide percent text, keep sliders usable */
