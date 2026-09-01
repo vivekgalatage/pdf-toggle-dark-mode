@@ -5,10 +5,10 @@ Obsidian plugin that toggles a dark/light appearance for PDF viewers and sidebar
 ## Features
 
 - **PDF toolbar controls** — independently configurable dark/light toggle and **Darkness**, **Color correction**, and **Brightness** sliders, mounted on the native PDF toolbar (same idea as PDF++’s color palette)
-- **Ribbon icon** — optional sun (light) / moon (dark) toggle, with tooltip for the current mode
+- **Ribbon icon** — optional sun (light) / moon (dark) toggle
 - **Status bar item** — optional toggle with a `PDF: Light` / `PDF: Dark` label
 - **Command** — *Toggle PDF dark/light mode* (bind a hotkey if you like)
-- **Settings** — appearance options and independent visibility controls for each interface surface (available from Settings → PDF Toggle Dark Mode)
+- **Settings** — appearance options and independent visibility controls for PDF toolbar controls and the status bar (available from Settings → PDF Toggle Dark Mode)
 - **Persistence** — mode, appearance, and interface settings are saved across restarts
 - **Adapt to theme** — optional setting so PDF dark/light follows Obsidian’s appearance (and system light/dark when Obsidian is set to adapt to system)
 - **Late PDF opens** — classes and toolbar controls re-apply when new PDF views mount
@@ -50,7 +50,6 @@ Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 |--------|----------------|---------|
 | **Show toolbar toggle** | Show/hide the sun/moon button on PDF toolbars | On |
 | **Show toolbar sliders** | Show/hide Darkness, Color correction, and Brightness controls and their reset buttons on PDF toolbars | On |
-| **Show ribbon icon** | Show/hide the sun/moon toggle in the left sidebar ribbon | On |
 | **Show status bar item** | Show/hide the `PDF: Light` / `PDF: Dark` status bar toggle | On |
 | **Adapt to theme** | PDF dark/light follows Obsidian (and system if Obsidian adapts to system). Manual toggles still work; the next theme change re-syncs. | Off |
 | **Darkness** | How strongly light pages turn dark | 90% |
@@ -60,7 +59,9 @@ Under **Settings → PDF Toggle Dark Mode** (requires Obsidian **1.13.0+**):
 
 Each slider has its own **Reset** control (toolbar: small rotate icon; Settings: *Reset darkness* / *Reset color correction* / *Reset brightness*). **Reset appearance** restores all three plus link outlines. Settings are searchable from Obsidian’s global settings search. Toolbar sliders and Settings stay in sync.
 
-All four interface surfaces can be hidden at once. The *Toggle PDF dark/light mode* command remains available, and the settings tab remains available to restore any surface.
+The toolbar controls and status bar item can all be hidden at once. The *Toggle PDF dark/light mode* command remains available, and the settings tab remains available to restore them.
+
+Ribbon visibility is controlled exclusively through Obsidian's native ribbon configuration. Use **Remove from ribbon** to hide the sun/moon icon and toggle **Toggle PDF dark/light mode** in the ribbon configuration to restore it. Both choices persist across restarts.
 
 ## Develop
 

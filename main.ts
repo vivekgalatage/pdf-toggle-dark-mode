@@ -74,6 +74,13 @@ const TOOLBAR_SPACER_CLS = "pdf-toolbar-spacer pdf-tdm-spacer";
 const PDF_TOOLBAR_SELECTOR = ".pdf-toolbar:not(.pdf-findbar)";
 
 /**
+ * Keep the ribbon registration title stable. Obsidian includes this title in
+ * the persisted `left-ribbon.hiddenItems` key, so a mode-dependent title would
+ * make Light and Dark appear to be different ribbon items.
+ */
+const RIBBON_TITLE = "Toggle PDF dark/light mode";
+
+/**
  * Body class toggled when link annotation outlines should be hidden.
  * styles.css provides a non-inline fallback; per-node overrides use setCssProps
  * (allowed) so we beat PDF.js inline borders on Linux without injecting <style>
@@ -137,8 +144,6 @@ interface PdfDarkModeSettings {
 	showToolbarToggle: boolean;
 	/** Show the appearance sliders in PDF toolbars. */
 	showToolbarSliders: boolean;
-	/** Show the dark/light toggle in the ribbon. */
-	showRibbonIcon: boolean;
 	/** Show the dark/light toggle in the status bar. */
 	showStatusBarItem: boolean;
 }
@@ -152,7 +157,6 @@ const DEFAULT_SETTINGS: PdfDarkModeSettings = {
 	showLinkAnnotations: true,
 	showToolbarToggle: true,
 	showToolbarSliders: true,
-	showRibbonIcon: true,
 	showStatusBarItem: true,
 };
 
@@ -262,7 +266,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 
 		this.ribbonEl = this.addRibbonIcon(
 			this.iconName(),
-			this.ribbonTooltip(),
+			RIBBON_TITLE,
 			() => {
 				void this.toggleMode();
 			}
@@ -282,8 +286,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 				void this.toggleMode();
 			}
 		});
-		// Apply saved visibility after creating the ribbon and status bar
-		this.applyUiVisibility();
+		// Apply saved visibility after creating the status bar
+		this.applyStatusBarVisibility();
 
 		this.addCommand({
 			id: "toggle-pdf-dark-mode",
@@ -405,8 +409,7 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		}
 		this.themeSyncTimer = window.setTimeout(() => {
 			this.themeSyncTimer = null;
-			// Obsidian can show hidden items while rebuilding the ribbon
-			this.applyUiVisibility();
+			this.applyStatusBarVisibility();
 			if (this.settings.adaptToTheme) {
 				void this.syncModeFromTheme();
 			}
@@ -1239,11 +1242,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			.forEach((el) => el.remove());
 	}
 
-	/** Show or hide the ribbon and status bar. */
-	applyUiVisibility() {
-		if (this.ribbonEl) {
-			this.ribbonEl.toggle(this.settings.showRibbonIcon);
-		}
+	/** Apply plugin-owned status bar visibility. */
+	applyStatusBarVisibility() {
 		if (this.statusBarEl) {
 			this.statusBarEl.toggle(this.settings.showStatusBarItem);
 		}
@@ -1257,8 +1257,9 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 
 		if (this.ribbonEl) {
 			setIcon(this.ribbonEl, icon);
-			this.ribbonEl.setAttr("aria-label", tooltip);
-			this.ribbonEl.setAttr("title", tooltip);
+			// These attributes are part of Obsidian's persisted ribbon identity.
+			this.ribbonEl.setAttr("aria-label", RIBBON_TITLE);
+			this.ribbonEl.setAttr("title", RIBBON_TITLE);
 		}
 
 		if (this.statusBarEl) {
@@ -1275,8 +1276,8 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 			this.statusBarEl.setAttr("title", tooltip);
 		}
 
-		// Keep hidden controls hidden after updating their icons
-		this.applyUiVisibility();
+		// Keep the optional status bar item hidden after updating its icon
+		this.applyStatusBarVisibility();
 		this.syncAllToolbarControls();
 	}
 
@@ -1345,10 +1346,6 @@ export default class PdfToggleDarkModePlugin extends Plugin {
 		if (raw && typeof raw.showToolbarSliders !== "boolean") {
 			this.settings.showToolbarSliders =
 				DEFAULT_SETTINGS.showToolbarSliders;
-		}
-		this.settings.showRibbonIcon = Boolean(this.settings.showRibbonIcon);
-		if (raw && typeof raw.showRibbonIcon !== "boolean") {
-			this.settings.showRibbonIcon = DEFAULT_SETTINGS.showRibbonIcon;
 		}
 		this.settings.showStatusBarItem = Boolean(
 			this.settings.showStatusBarItem
@@ -1451,21 +1448,6 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 						control: {
 							type: "toggle",
 							key: "showToolbarSliders",
-							defaultValue: true,
-						},
-					},
-					{
-						name: "Show ribbon icon",
-						desc: "Show the sun/moon icon in the left sidebar ribbon. When hidden, the Toggle PDF dark/light mode command remains available, and this settings tab can restore the icon.",
-						aliases: [
-							"sidebar icon",
-							"left ribbon",
-							"ribbon button",
-							"sun moon",
-						],
-						control: {
-							type: "toggle",
-							key: "showRibbonIcon",
 							defaultValue: true,
 						},
 					},
@@ -1664,7 +1646,6 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 		if (key === "showToolbarToggle") {
 			this.plugin.settings.showToolbarToggle = Boolean(value);
 			await this.plugin.saveSettings();
-			this.plugin.applyUiVisibility();
 			// Rebuild the toolbar to apply the setting
 			this.plugin.removeAllToolbarControls();
 			this.plugin.injectToolbarControls();
@@ -1673,22 +1654,15 @@ class PdfDarkModeSettingTab extends PluginSettingTab {
 		if (key === "showToolbarSliders") {
 			this.plugin.settings.showToolbarSliders = Boolean(value);
 			await this.plugin.saveSettings();
-			this.plugin.applyUiVisibility();
 			// Rebuild the toolbar to apply the setting
 			this.plugin.removeAllToolbarControls();
 			this.plugin.injectToolbarControls();
 			return;
 		}
-		if (key === "showRibbonIcon") {
-			this.plugin.settings.showRibbonIcon = Boolean(value);
-			await this.plugin.saveSettings();
-			this.plugin.applyUiVisibility();
-			return;
-		}
 		if (key === "showStatusBarItem") {
 			this.plugin.settings.showStatusBarItem = Boolean(value);
 			await this.plugin.saveSettings();
-			this.plugin.applyUiVisibility();
+			this.plugin.applyStatusBarVisibility();
 			return;
 		}
 		if (key === "adaptToTheme") {
